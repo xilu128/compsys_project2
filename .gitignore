@@ -1,0 +1,8 @@
+# Generated firmware and Eclipse workspace state
+**/Debug/
+**/Release/
+**/.metadata/
+**/__pycache__/
+*.pyc
+.DS_Store
+*.zip
