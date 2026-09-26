@@ -291,14 +291,7 @@ int main(void)
   //***************************************************
   //***************************************************
 
-  //#CS704 - use this to set BLE Device Name
-  NodeName[1] = 'A';
-  NodeName[2] = 'B';
-  NodeName[3] = 'C';
-  NodeName[4] = 'D';
-  NodeName[5] = 'E';
-  NodeName[6] = 'F';
-  NodeName[7] = 'G';
+  /* Advertising and GAP names are initialized together in Init_BlueNRG_Stack. */
 
   /* Sensor configuration and motion state initialized in InitTargetPlatform. */
   //***************************************************
@@ -376,7 +369,7 @@ void InitTargetPlatform(void)
   MX_UART5_UART_Init();
 
   P2_MotionInit(&Motion);
-  XPRINTF("P2INFO,boot,magnetic_calibration=%s,uart=115200_8N1\r\n",
+  XPRINTF("P2INFO,boot,firmware=" P2_FIRMWARE_VERSION ",magnetic_calibration=%s,uart=115200_8N1\r\n",
           P2_MAG_CALIBRATED ? "MEASURED" : "UNCALIBRATED");
   InitLSM();
 
@@ -970,8 +963,7 @@ void LSM303AGR_SPI_Write(SPI_HandleTypeDef* xSpiHandle, uint8_t val)
  */
 static void Init_BlueNRG_Stack(void)
 {
-  char BoardName[8];
-  char customName[8] = "CSys704";
+  char BoardName[8] = P2_BLE_NAME;
   uint16_t service_handle, dev_name_char_handle, appearance_char_handle;
   int ret;
   uint8_t  data_len_out;
@@ -980,13 +972,9 @@ static void Init_BlueNRG_Stack(void)
   
 
 
-//  for(int i=0; i<7; i++)
-//    BoardName[i]= NodeName[i+1];
-
-  for(int i=0; i<7; i++)
-    BoardName[i]= customName[i];
-  
-  BoardName[7]= 0;
+  /* Keep scan-list, connected-device and UART identities consistent. */
+  for (unsigned i = 0U; i < sizeof(BoardName) - 1U; ++i)
+    NodeName[i + 1U] = (uint8_t)BoardName[i];
   
   /* Initialize the BlueNRG SPI driver */
   hci_init(HCI_Event_CB, NULL);
@@ -1229,7 +1217,5 @@ void assert_failed(uint8_t* file, uint32_t line)
   }
 }
 #endif
-
-
 
 

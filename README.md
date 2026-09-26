@@ -95,7 +95,13 @@ Application sources are in `Projects/STM32L476JG-SensorTile/Applications/ALLMEMS
 - Steps: acceleration magnitude removes dependence on fixed orientation. A
   0.6 s low-pass baseline estimates gravity magnitude; a 0.06 s low-pass smooths
   the residual. A negative trough arms detection; a subsequent falling peak
-  above 100 mg counts a step, with a 280 ms refractory interval. Startup and
+  above 100 mg is a candidate, with a 280 ms refractory interval. Three candidates
+  with adjacent intervals no greater than 1.5 s and an interval ratio no greater
+  than 1.6 confirm a walking bout. The first three are then published together,
+  so confirmation delays the display but retains the starting candidates.
+  Subsequent candidates count immediately; a pause longer than 1.5 s restarts
+  confirmation. One/two-step bouts may be discarded, and rhythmic shaking may
+  still resemble walking. This is not a general activity classifier. Startup and
   sampling gaps over 250 ms trigger a one-second settling interval. Counts
   reset on reboot. This is a tunable baseline, not a universal gait classifier.
 - Heading: low-pass acceleration estimates up. Subtract magnetic hard-iron bias,
@@ -112,8 +118,12 @@ Application sources are in `Projects/STM32L476JG-SensorTile/Applications/ALLMEMS
 
 ## Phone and serial data
 
-Advertising name is `ABCDEFG`, retained from the starter; the GAP device-name
-characteristic/boot log says `CSys704`. This board's address is
+Advertising and GAP device names are now both `P202S01` (Project 2, Group 02,
+step-confirm revision 01), configured by `P2_BLE_NAME`. UART boot output includes
+`firmware=step-confirm-1`. The app's `FP-SNS-ALLMEMS1 v4.2.0` label describes the
+inherited ST profile, not this project's firmware revision. After flashing,
+disconnect and scan again; a cached name alone is not proof of firmware version.
+This board's address is
 `F9:B0:57:92:6B:52`. Connect using the
 course-provided ST BLE Sensor app and enable/subscribe to motion notifications.
 The Gyroscope display is **repurposed**, not a measurement of angular velocity.

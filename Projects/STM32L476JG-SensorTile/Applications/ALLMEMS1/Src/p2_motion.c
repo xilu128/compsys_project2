@@ -8,6 +8,47 @@ static float wrap(float x) {
     x = fmodf(x, 360.0f);
     return x < 0.0f ? x + 360.0f : x;
 }
+
+/* Discard unconfirmed motion, but preserve already published steps. */
+static void reset_bout(P2_Motion *s) {
+    s->pending_steps = 0U;
+    s->candidate_interval_ms = 0U;
+    s->have_peak = false;
+    s->walking = false;
+    s->armed = false;
+}
+
+static void add_steps(P2_Motion *s, uint32_t count) {
+    s->steps += count > UINT32_MAX - s->steps ? UINT32_MAX - s->steps : count;
+    s->distance_m = s->steps * P2_STEP_LENGTH_M;
+}
+
+static void accept_candidate(P2_Motion *s, uint32_t now) {
+    uint32_t interval = now - s->peak_ms;
+    if (!s->have_peak) {
+        s->pending_steps = 1U;
+    } else if (s->walking) {
+        /* Allow cadence changes once walking is established. */
+        add_steps(s, 1U);
+    } else {
+        /* Two adjacent intervals must agree before the first three candidates
+         * become steps. Irregular handling starts a fresh confirmation window. */
+        bool consistent = s->candidate_interval_ms == 0U ||
+            ((float)interval <= s->candidate_interval_ms * P2_STEP_CADENCE_RATIO &&
+             (float)s->candidate_interval_ms <= interval * P2_STEP_CADENCE_RATIO);
+        s->pending_steps = consistent ? s->pending_steps + 1U : 2U;
+        if (s->pending_steps >= P2_STEP_CONFIRM_COUNT) {
+            add_steps(s, s->pending_steps); /* Backfill, do not lose startup steps. */
+            s->pending_steps = 0U;
+            s->walking = true;
+        }
+    }
+    s->candidate_interval_ms = s->have_peak ? interval : 0U;
+    s->peak_ms = now;
+    s->have_peak = true;
+    s->armed = false;
+}
+
 void P2_MotionInit(P2_Motion *s) {
     memset(s, 0, sizeof(*s));
     s->mag_bias = (P2_Vector){P2_MAG_BIAS_X, P2_MAG_BIAS_Y, P2_MAG_BIAS_Z};
@@ -16,7 +57,7 @@ void P2_MotionInit(P2_Motion *s) {
 void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     float magnitude = norm(a);
     if (!isfinite(magnitude) || magnitude < P2_ACC_MIN_MG || magnitude > P2_ACC_MAX_MG) {
-        s->armed = false;
+        reset_bout(s);
         s->heading_valid = false;
         /* Discard the old gravity estimate after a drop/impact/invalid sample.
          * A new magnetic sample must not make that old estimate valid again. */
@@ -28,7 +69,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
         s->gravity = a;
         s->baseline = magnitude;
         s->filtered = s->previous = 0.0f;
-        s->armed = false;
+        reset_bout(s);
         s->start_ms = now;
         s->last_ms = now;
         s->initialized = true;
@@ -38,6 +79,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     if (elapsed == 0U) return;
     float dt = elapsed * 0.001f;
     s->last_ms = now;
+    if (s->have_peak && now - s->peak_ms > P2_STEP_MAX_MS) reset_bout(s);
     float slow = dt / (P2_GRAVITY_FILTER_S + dt);
     s->gravity.x += slow * (a.x - s->gravity.x);
     s->gravity.y += slow * (a.y - s->gravity.y);
@@ -56,11 +98,8 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     /* Do not pair an isolated trough with an unrelated motion much later. */
     if (s->armed && now - s->trough_ms > P2_TROUGH_TIMEOUT_MS) s->armed = false;
     if (s->armed && s->previous > P2_STEP_HIGH_MG && s->filtered < s->previous &&
-        (s->steps == 0U || now - s->peak_ms >= P2_STEP_MIN_MS)) {
-        if (s->steps != UINT32_MAX) ++s->steps;
-        s->distance_m = s->steps * P2_STEP_LENGTH_M;
-        s->peak_ms = now;
-        s->armed = false;
+        (!s->have_peak || now - s->peak_ms >= P2_STEP_MIN_MS)) {
+        accept_candidate(s, now);
     }
 }
 bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
