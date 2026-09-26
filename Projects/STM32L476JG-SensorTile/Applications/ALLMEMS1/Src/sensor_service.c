@@ -7,6 +7,7 @@
   */
 #include <stdio.h>
 #include "main.h"
+#include "SensorTile.h"
 #include "ble_interface.h"
 #include "bluenrg_utils.h"
 #include "bluenrg_l2cap_aci.h"
@@ -137,7 +138,7 @@ tBleStatus Add_HW_SW_ServW2ST_Service(void)
                           &HWServW2STHandle);
 
   if (ret != BLE_STATUS_SUCCESS) {
-	  XPRINTF("Error Creating Service\r\n");
+	  XPRINTF("P2ERROR,ble_service_create_failed\r\n");
     goto fail;
   }
   
@@ -150,7 +151,7 @@ tBleStatus Add_HW_SW_ServW2ST_Service(void)
                            16, 0, &AccGyroMagCharHandle);
 
   if (ret != BLE_STATUS_SUCCESS) {
-	  XPRINTF("Error Creating Characterstic\r\n");
+	  XPRINTF("P2ERROR,ble_characteristic_create_failed\r\n");
     goto fail;
   }
 
@@ -212,10 +213,14 @@ tBleStatus AccGyroMag_Update(BSP_MOTION_SENSOR_Axes_t *Acc,BSP_MOTION_SENSOR_Axe
 
   if (ret != BLE_STATUS_SUCCESS){
 //    if(W2ST_CHECK_CONNECTION(W2ST_CONNECT_STD_ERR)){
-//      BytesToWrite =sprintf((char *)BufferToWrite, "Error Updating Acc/Gyro/Mag Char\r\n");
+//      BytesToWrite =sprintf((char *)BufferToWrite, "P2ERROR,ble_notify_failed\r\n");
 //      Stderr_Update(BufferToWrite,BytesToWrite);
 //    } else {
-      XPRINTF("Error Updating Acc/Gyro/Mag Char\r\n");
+      static uint32_t last_error_log;
+      if (HAL_GetTick() - last_error_log >= P2_ERROR_LOG_PERIOD_MS) {
+          last_error_log = HAL_GetTick();
+          XPRINTF("P2ERROR,ble_notify_failed\r\n");
+      }
 //    }
     return BLE_STATUS_ERROR;
   }
@@ -310,6 +315,8 @@ static void GAP_ConnectionComplete_CB(uint8_t addr[6], uint16_t handle)
 {  
   connected = TRUE;
   connection_handle = handle;
+  BSP_LED_On(LED1);
+  XPRINTF("P2INFO,ble_connected\r\n");
 
 #ifdef ALLMEMS1_DEBUG_CONNECTION
   ALLMEMS1_PRINTF("\r\n>>>>>>CONNECTED %x:%x:%x:%x:%x:%x\r\n\r\n",addr[5],addr[4],addr[3],addr[2],addr[1],addr[0]);
@@ -329,9 +336,10 @@ static void GAP_ConnectionComplete_CB(uint8_t addr[6], uint16_t handle)
 static void GAP_DisconnectionComplete_CB(void)
 {
   connected = FALSE;
+  connection_handle = 0;
 
 //#ifdef ALLMEMS1_DEBUG_CONNECTION
-  XPRINTF("<<<<<<DISCONNECTED\r\n");
+  XPRINTF("P2INFO,ble_disconnected\r\n");
 //#endif /* ALLMEMS1_DEBUG_CONNECTION */
 
 
@@ -365,7 +373,7 @@ static void GAP_DisconnectionComplete_CB(void)
 void Read_Request_CB(uint16_t handle)
 {
   //EXIT:
-  if(connection_handle != 0)
+  if(connected) /* HCI connection handle zero is valid. */
     aci_gatt_allow_read(connection_handle);
 }
 
@@ -382,7 +390,8 @@ void Attribute_Modified_CB(uint16_t attr_handle, uint8_t * att_data, uint8_t dat
 {
 
 
-    	if(attr_handle == AccGyroMagCharHandle + 2) {
+    	if(connected && data_length == 2 && att_data != NULL &&
+           attr_handle == AccGyroMagCharHandle + 2) {
       AccGyroMag_AttributeModified_CB(att_data);
     	}
 
@@ -400,6 +409,7 @@ void Attribute_Modified_CB(uint16_t attr_handle, uint8_t * att_data, uint8_t dat
 static void AccGyroMag_AttributeModified_CB(uint8_t *att_data)
 {
   if (att_data[0] == 01) {
+    if (W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG)) return;
     W2ST_ON_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG);
 
     /* Start the TIM Base generation in interrupt mode */
@@ -415,6 +425,7 @@ static void AccGyroMag_AttributeModified_CB(uint8_t *att_data)
       __HAL_TIM_SET_COMPARE(&TimCCHandle, TIM_CHANNEL_4, (uhCapture + uhCCR4_Val));
     }
   } else if (att_data[0] == 0) {
+    if (!W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG)) return;
     W2ST_OFF_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG);
 
     /* Stop the TIM Base generation in interrupt mode */
@@ -424,7 +435,7 @@ static void AccGyroMag_AttributeModified_CB(uint8_t *att_data)
     }      
   }
 
-    XPRINTF("--->Acc/Gyro/Mag=%s", W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG) ? " ON\r\n" : " OFF\r\n\n");
+    XPRINTF("P2INFO,ble_subscription=%s", W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG) ? " ON\r\n" : " OFF\r\n");
 
 }
 
@@ -444,7 +455,7 @@ void HCI_Event_CB(void *pckt)
   hci_uart_pckt *hci_pckt = pckt;
   hci_event_pckt *event_pckt = (hci_event_pckt*)hci_pckt->data;
   
-  XPRINTF("HCI_Event_CB\r\n\r\n");
+  /* Per-event UART logging can stall the 50 Hz acquisition under BLE load. */
 
   if(hci_pckt->type != HCI_EVENT_PKT) {
     return;

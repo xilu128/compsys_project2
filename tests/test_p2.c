@@ -1,6 +1,7 @@
 #include "p2_motion.h"
 #include "p2_sensor.h"
 #include "p2_packet.h"
+#include "p2_config.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -36,6 +37,20 @@ int main(void) {
         P2_MotionAcceleration(&s,(P2_Vector){0,0,1000+8*sinf(t)},t);
     assert(s.steps==0);
     walking(1.0f,0); walking(2.0f,0); walking(3.0f,0); walking(2.0f,UINT32_MAX-5000U);
+    /* Adversarial 6 Hz motion must never bypass the refractory interval. */
+    settle(&s);
+    uint32_t last_step = 0;
+    unsigned detected = 0;
+    for (unsigned t=2000;t<12000;t+=20) {
+        uint32_t before=s.steps;
+        P2_MotionAcceleration(&s,(P2_Vector){0,0,1000+600*sinf(6.283185307f*6*t/1000)},t);
+        if (s.steps!=before) {
+            assert(s.steps==before+1);
+            if (detected) assert(t-last_step>=P2_STEP_MIN_MS);
+            last_step=t; ++detected;
+        }
+    }
+    assert(detected>0);
     const P2_Vector mag[]={{300,0,-400},{0,300,-400},{-300,0,-400},{0,-300,-400}};
     for (unsigned i=0;i<4;++i) {
         settle(&s); assert(P2_MotionHeading(&s,mag[i])); near(s.heading_deg,90.0f*i,0.01f);
@@ -49,6 +64,18 @@ int main(void) {
     assert(!P2_MotionHeading(&s,(P2_Vector){NAN,0,0}));
     s.gravity=(P2_Vector){1000,0,0}; assert(!P2_MotionHeading(&s,mag[0]));
     settle(&s); P2_MotionAcceleration(&s,(P2_Vector){0,0,1200},10000); assert(s.steps==0);
+    assert(!P2_MotionHeading(&s,mag[0])); /* settle again after a sampling gap */
+    settle(&s); assert(P2_MotionHeading(&s,mag[0]));
+    P2_MotionAcceleration(&s,(P2_Vector){NAN,0,1000},2000);
+    assert(!P2_MotionHeading(&s,mag[0])); /* no revival of stale gravity */
+    P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},2020);
+    assert(!P2_MotionHeading(&s,mag[0]));
+    for (unsigned t=2040;t<=3040;t+=20) P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},t);
+    assert(P2_MotionHeading(&s,mag[0]));
+    s.gravity.x=NAN; assert(!P2_MotionHeading(&s,mag[0]));
+    settle(&s); s.mag_scale.x=-1; assert(!P2_MotionHeading(&s,mag[0]));
+    settle(&s); s.armed=true; s.trough_ms=0;
+    P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},2020); assert(!s.armed);
     P2_SensorBus b={ra,wa,rm,wm}; P2_Vector v;
     assert(!P2_SensorInit(&b)); ar[15]=0x33; mr[79]=0x40;
     assert(P2_SensorInit(&b)); assert(ar[0x23]==0x99 && mr[0x62]==0x30);

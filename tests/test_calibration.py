@@ -14,7 +14,8 @@ bias, scale, cv = estimate(samples)
 assert max(abs(x-y) for x, y in zip(bias, (80, -50, 30))) < 5
 assert max(abs(x-y) for x, y in zip(scale, (1.25, 1, 5/6))) < 0.02
 assert cv < 0.02
-for invalid in [samples[:10], [(1, 2, 3)]*100]:
+for invalid in [samples[:10], [(1, 2, 3)]*100, [(float('nan'),2,3)]*100,
+                [(1,float('inf'),3)]*100]:
     try:
         estimate(invalid)
     except ValueError:

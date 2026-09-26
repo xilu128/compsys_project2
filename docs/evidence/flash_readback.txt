@@ -1,0 +1,35 @@
+      -------------------------------------------------------------------
+                       STM32CubeProgrammer v2.23.0                  
+      -------------------------------------------------------------------
+
+ST-LINK SN  : 0026004D3233510639363634
+ST-LINK FW  : V3J16M9B5S1
+Board       : STLINK-V3MODS
+Voltage     : 3.25V
+SWD freq    : 1000 KHz
+Connect mode: Under Reset
+Reset mode  : Hardware reset
+Device ID   : 0x415
+Revision ID : Rev 4
+Device name : STM32L4x1/STM32L475xx/STM32L476xx/STM32L486xx
+NVM size    : 1 MBytes
+Device type : MCU
+Device CPU  : Cortex-M4
+BL Version  : 0x92
+Debug in Low Power mode enabled
+
+
+UPLOADING ...
+  File          : D:\COMPSYS704\COMPSYS704_Project2\environment_backup\baseline_app_readback_20260923.bin
+  Size          : 31936 Bytes
+  Address:      : 0x8004000
+Read progress:
+�������������������������������������������������� 0%
+�������������������������������������������������� 100%
+
+Data read successfully
+Time elapsed during read operation is: 00:00:00.274
+
+MCU Reset
+
+Software reset is performed

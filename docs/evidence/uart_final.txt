@@ -1,0 +1,5 @@
+steps=0 heading=227 valid=1 errors=0 acc=-18,18,966 mag=-464,-468,710 ms=3006 samples=152,151 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-16,20,966 mag=-465,-468,714 ms=4006 samples=203,202 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-20,18,964 mag=-464,-471,714 ms=5006 samples=254,253 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-16,20,962 mag=-462,-464,707 ms=6006 samples=306,304 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-16,26,964 mag=-462,-464,708 ms=7006 samples=357,355 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1

@@ -4,12 +4,42 @@ Collect full, slow 3D rotations away from steel/electronics; not ordinary walkin
 No hardware writes. Review results before copying macros into p2_config.h.
 """
 import argparse
+import csv
 import math
 import re
 from pathlib import Path
+from capture_log import parse_line
+
+
+def load_samples(path):
+    """Accept capture CSV, structured UART or legacy mag=x,y,z logs."""
+    samples = []
+    with Path(path).open(encoding='utf-8-sig', errors='replace', newline='') as source:
+        if Path(path).suffix.lower() == '.csv':
+            reader = csv.DictReader(source)
+            columns = ['mag_x_mgauss', 'mag_y_mgauss', 'mag_z_mgauss']
+            if not set(columns) <= set(reader.fieldnames or []):
+                raise ValueError('CSV needs mag_x_mgauss, mag_y_mgauss, mag_z_mgauss')
+            for row in reader:
+                if row.get('mag_fresh') == '0':
+                    continue
+                samples.append(tuple(float(row[c]) for c in columns))
+        else:
+            for line in source:
+                if line.startswith('P2DATA,'):
+                    row = parse_line(line)
+                    if row.get('mag_fresh') != 0:
+                        samples.append(tuple(row['mag_'+a+'_mgauss'] for a in 'xyz'))
+                else:
+                    match = re.search(r'mag=(-?\d+),(-?\d+),(-?\d+)', line)
+                    if match:
+                        samples.append(tuple(map(float, match.groups())))
+    return samples
 
 
 def estimate(samples):
+    if any(len(v) != 3 or not all(math.isfinite(x) for x in v) for v in samples):
+        raise ValueError("Calibration samples must contain three finite values")
     if len(samples) < 100:
         raise ValueError("Need at least 100 samples from full 3D rotations")
     lo = [min(v[i] for v in samples) for i in range(3)]
@@ -32,10 +62,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
     args = parser.parse_args()
-    samples = [tuple(map(float, m)) for m in re.findall(r"mag=(-?\d+),(-?\d+),(-?\d+)", args.log.read_text())]
     try:
+        samples = load_samples(args.log)
         bias, scale, variation = estimate(samples)
-    except ValueError as error:
+    except (ValueError, OSError, TypeError) as error:
         parser.error(str(error))
     for prefix, values in [("BIAS", bias), ("SCALE", scale)]:
         for axis, value in zip("XYZ", values):

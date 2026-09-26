@@ -130,12 +130,13 @@ if QUAT_UPDATE_MUL_10MS!=3, then SEND_N_QUATERNIONS must be ==1
 	#include <stdio.h>
 	#include <stdint.h>
     void UART5_Transmit(uint8_t *buffer, uint16_t length);
+    #include "p2_config.h"
     #define XPRINTF(...) {\
-	  char TmpBufferToWrite[256];\
+	  char TmpBufferToWrite[P2_LOG_LINE_BYTES];\
       int32_t TmpBytesToWrite;\
       TmpBytesToWrite = (int32_t) snprintf(TmpBufferToWrite, sizeof(TmpBufferToWrite), __VA_ARGS__);\
       if (TmpBytesToWrite < 0) TmpBytesToWrite = 0;\
-      if (TmpBytesToWrite >= (int32_t)sizeof(TmpBufferToWrite)) TmpBytesToWrite = sizeof(TmpBufferToWrite)-1;\
+      if (TmpBytesToWrite >= (int32_t)sizeof(TmpBufferToWrite)) TmpBytesToWrite = 0;\
       UART5_Transmit((uint8_t*)TmpBufferToWrite, TmpBytesToWrite); \
     }
 
