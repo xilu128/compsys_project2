@@ -1,8 +1,59 @@
-# Validation record — latest logging update 2026-09-26
+# Validation record — step confirmation update 2026-09-26
+
+## Step confirmation (`step-confirm-1`) — software validation
+
+Based on main commit `1322561`. Three consecutive candidate peaks with consistent
+cadence are required to start a walking bout; the first three are backfilled.
+After 1.5 s without a candidate, confirmation restarts. Existing amplitude
+thresholds, magnetic heading, BLE mapping and sensor ODR are unchanged.
+UART boot output includes `firmware=step-confirm-1` to identify the new image.
+Advertising and GAP names are unified as `P202S01`; the app's inherited
+`FP-SNS-ALLMEMS1 v4.2.0` profile label is not the project firmware version.
+The final build and full software suite were rerun after this identity change.
+Live BLE testing of the OLD main (`1322561`) found 0 steps over about 44 seconds
+at rest, then 4 false steps / 2.8 m during user-reported board flipping.
+These observations are a baseline, not hardware validation of the new image.
+
+| Check | Result |
+|---|---|
+| Debug build, macOS CubeIDE 2.2.0 / GCC 14.3.1 | PASS: 0 errors / 0 warnings; text 34336, data 112, bss 18828 bytes |
+| Release build, same toolchain | PASS: 0 errors / 0 warnings; text 30432, data 112, bss 18820 bytes |
+| Existing portable C regression tests, ASan/UBSan | PASS; original 1/2/3 Hz synthetic counts unchanged |
+| New bout tests, ASan/UBSan | PASS: startup backfill, separated pulses/pairs, inconsistent cadence, pause/restart, sampling gap, invalid sample, wrap, saturation |
+| Nine synthetic 100-cycle cases | 100 each: periods 1240/600/400 ms on three fixed mount axes |
+| Synthetic gradual cadence change | 40/40 cycles |
+| Ideal constant-magnitude rotation | 0 steps |
+| User flip recording, 10 Hz replay | Old code: 2; new code: 0 (original hardware log: 3) |
+| Python calibration, BLE packet and seven logging tests | PASS; pyserial 3.5 installed only in a temporary isolated test environment |
+
+The flip fixture is derived from `walk_100_normal_02_20260926_105821.csv`.
+The user explicitly reported flipping only, despite the filename. Only device
+milliseconds and acceleration are retained in `tests/data/flip_10hz.csv`.
+There are 530 snapshots spanning 52.9 s. They are **10 Hz snapshots of a roughly
+50 Hz algorithm input**, not a complete sensor stream. Old replay gives 2 rather
+than the hardware's 3, demonstrating why replay must not be treated as an exact
+hardware comparison. The new zero is encouraging but requires a repeat on board.
+Previous normal-walk logs are no longer available at their supplied paths; their
+historical 99/100, 100/100 and 45/45 results are not tests of this changed code.
+
+Limitations: one/two-step bouts are intentionally withheld; stop/start walking
+may undercount. Repeated rhythmic handling can still resemble walking. The new
+firmware has not been flashed or tested on hardware in this update. Next tests:
+repeat flipping without walking, stationary 60 s, three uninterrupted 100-step
+walks, slow walking and short stop/start bouts. Record individual results.
+
+Current ELF SHA256:
+
+- Debug: `23575d1e8382afd4bc20cb9887171ebfd2cb484c2a053e9b8ae8105db6314569`
+- Release: `ef79b3543a344b0de78fdaa7570feefa7c8b9fb2a60b9c51e6327d3a5728aff8`
+
+Reproduce with `sh tests/run_tests.sh` (set `PYTHON` to an interpreter with
+pyserial) and `python3 tools/replay_motion.py tests/data/flip_10hz.csv`.
+The older validation entries and binary hashes below describe earlier versions.
 
 ## UART-to-PC logging — PASS
 
-Scope: logging infrastructure only. No step/heading/distance algorithm changes,
+Historical scope: logging infrastructure only. No step/heading/distance algorithm changes,
 no BLE mapping changes, no sensor ODR changes, no SD or internal-flash logging.
 The older 23 September results below are historical, not the current ELF hashes.
 The old source ZIP was not silently replaced; use the current source for logging.

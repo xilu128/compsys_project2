@@ -1,5 +1,9 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
+#define P2_FIRMWARE_VERSION "step-confirm-1"
+/* Seven bytes fit the starter's advertising layout: project/group/revision. */
+#define P2_BLE_NAME "P202S01"
+typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 /* Sensor register axes are the body axes. Mount +X forward, +Z up.
  * Heading is clockwise from magnetic north; verify axes with the physical board. */
 #define P2_LOG_PERIOD_MS 100U /* UART telemetry only; sensor ODR remains 50 Hz. */
@@ -9,6 +13,11 @@
 #define P2_STEP_HIGH_MG 100.0f
 #define P2_STEP_LOW_MG (-40.0f)
 #define P2_STEP_MIN_MS 280U
+/* Confirm a walking bout before publishing its first steps. A long pause
+ * starts a new bout. Applies to candidate peaks, not the UART log interval. */
+#define P2_STEP_MAX_MS 1500U
+#define P2_STEP_CONFIRM_COUNT 3U
+#define P2_STEP_CADENCE_RATIO 1.6f
 #define P2_STEP_LENGTH_M 0.70f
 #define P2_HEADING_OFFSET_DEG 0.0f
 /* Seconds, milliseconds, mg and mGauss: keep tunable physical limits here. */

@@ -45,7 +45,8 @@ int main(void) {
         uint32_t before=s.steps;
         P2_MotionAcceleration(&s,(P2_Vector){0,0,1000+600*sinf(6.283185307f*6*t/1000)},t);
         if (s.steps!=before) {
-            assert(s.steps==before+1);
+            /* The first report includes the three confirmed startup steps. */
+            assert(s.steps==before+(detected ? 1U : P2_STEP_CONFIRM_COUNT));
             if (detected) assert(t-last_step>=P2_STEP_MIN_MS);
             last_step=t; ++detected;
         }
