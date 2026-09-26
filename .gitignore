@@ -1,8 +1,25 @@
-# Generated firmware and Eclipse workspace state
+# Generated firmware, host tests and IDE workspace state
 **/Debug/
 **/Release/
 **/.metadata/
 **/__pycache__/
+*.elf
+*.bin
+# Supplied bootloaders are required runtime dependencies, not build outputs.
+!Utilities/BootLoader/**/*.bin
+*.o
+*.obj
+*.d
+*.map
+*.su
+*.cyclo
+*.exe
+*.pdb
 *.pyc
 .DS_Store
+__MACOSX/
 *.zip
+logs/*.csv
+logs/*.log
+.zig-cache/
+zig-cache/

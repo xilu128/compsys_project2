@@ -1,0 +1,7 @@
+synthetic 1.0 Hz: 19 steps (expected approx 20)
+synthetic 2.0 Hz: 39 steps (expected approx 40)
+synthetic 3.0 Hz: 59 steps (expected approx 60)
+synthetic 2.0 Hz: 39 steps (expected approx 40)
+PASS: stationary/noise, cadence, tick wrap, distance, cardinal/tilted headings, invalid data, driver conversions/errors, packet saturation.
+PASS: known ellipsoid, bias/scale recovery, insufficient data and coverage rejection
+PASS: BLE packet length, signed units, timestamp, steps, distance, invalid heading

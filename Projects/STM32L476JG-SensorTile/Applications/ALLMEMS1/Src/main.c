@@ -146,46 +146,77 @@ static const P2_SensorBus SensorBus = {
 };
 static P2_Motion Motion;
 static uint32_t SensorErrors;
+static uint32_t AccSamples, MagSamples, BleErrors;
+static uint32_t LogDropped;
+static void UART5_LogPoll(void);
 static uint32_t LastAccTick;
 static uint8_t HaveAcc;
 static uint32_t LastMagTick;
 static uint8_t HaveMag;
 static uint8_t SpiFault;
+static uint8_t SensorReady;
+static uint32_t LastSensorAttempt;
 
 static void InitLSM(void) {
-    if (Sensor_IO_SPI_CS_Init_All() != HAL_OK) Error_Handler();
-    if (!P2_SensorInit(&SensorBus)) {
-        XPRINTF("LSM303AGR identity/configuration failed. Check hardware.\r\n");
-        Error_Handler();
+    LastSensorAttempt = HAL_GetTick();
+    SensorReady = Sensor_IO_SPI_CS_Init_All() == HAL_OK && P2_SensorInit(&SensorBus);
+    HaveAcc = HaveMag = 0;
+    LastAccTick = LastMagTick = HAL_GetTick();
+    Motion.initialized = Motion.armed = Motion.heading_valid = false;
+    if (SensorReady) {
+        XPRINTF("P2INFO,sensor=LSM303AGR,status=ready,acc_id=0x33,mag_id=0x40,odr_hz=50\r\n");
+    } else {
+        if (SensorErrors != UINT32_MAX) ++SensorErrors;
+        XPRINTF("P2ERROR,sensor_init_failed,retry_ms=%lu\r\n", (unsigned long)P2_SENSOR_RETRY_MS);
     }
-    P2_MotionInit(&Motion);
-    XPRINTF("LSM303AGR ready: 50 Hz, acc mg, mag mGauss.\r\n");
 }
 
 static void ProcessSensors(void) {
     P2_Vector value;
     uint32_t now = HAL_GetTick();
+    if (!SensorReady) {
+        if (now - LastSensorAttempt >= P2_SENSOR_RETRY_MS) InitLSM();
+        /* Retrying never blocks the BLE event loop for a full retry period. */
+        goto telemetry;
+    }
     int result = P2_SensorReadAcc(&SensorBus, &value);
     if (result > 0) {
+        ++AccSamples;
         ACC_Value.x = (int32_t)lroundf(value.x);
         ACC_Value.y = (int32_t)lroundf(value.y);
         ACC_Value.z = (int32_t)lroundf(value.z);
         P2_MotionAcceleration(&Motion, value, now);
         LastAccTick = now;
         HaveAcc = 1;
-    } else if (result < 0) ++SensorErrors;
+    } else if (result < 0) {
+        if (SensorErrors != UINT32_MAX) ++SensorErrors;
+        HaveAcc = 0;
+        Motion.initialized = false;
+        Motion.heading_valid = false;
+    }
     result = P2_SensorReadMag(&SensorBus, &value);
     if (result > 0) {
+        ++MagSamples;
         LastMagTick = now;
         HaveMag = 1;
         MAG_Value.x = (int32_t)lroundf(value.x);
         MAG_Value.y = (int32_t)lroundf(value.y);
         MAG_Value.z = (int32_t)lroundf(value.z);
-        if (HaveAcc && now - LastAccTick <= 100U) P2_MotionHeading(&Motion, value);
+        if (HaveAcc && now - LastAccTick <= P2_ACC_FRESH_MS) P2_MotionHeading(&Motion, value);
         else Motion.heading_valid = false;
-    } else if (result < 0) ++SensorErrors;
-    if (!HaveAcc || !HaveMag || now - LastAccTick > 100U || now - LastMagTick > 200U)
+    } else if (result < 0) {
+        if (SensorErrors != UINT32_MAX) ++SensorErrors;
+        HaveMag = 0;
         Motion.heading_valid = false;
+    }
+    if (!HaveAcc || !HaveMag || now - LastAccTick > P2_ACC_FRESH_MS || now - LastMagTick > P2_MAG_FRESH_MS)
+        Motion.heading_valid = false;
+    if (now - LastAccTick > P2_SENSOR_STALL_MS || now - LastMagTick > P2_SENSOR_STALL_MS) {
+        SensorReady = HaveAcc = HaveMag = 0;
+        Motion.initialized = Motion.armed = Motion.heading_valid = false;
+        if (SensorErrors != UINT32_MAX) ++SensorErrors;
+    }
+telemetry:
     COMP_Value.Steps = Motion.steps;
     COMP_Value.Heading = (uint32_t)lroundf(Motion.heading_deg) % 360U;
     /* BLE distance is tenths of a metre, matching the app's /10 gyroscope scale. */
@@ -194,11 +225,31 @@ static void ProcessSensors(void) {
     static uint32_t last_log;
     if (now - last_log >= P2_LOG_PERIOD_MS) {
         last_log = now;
-        XPRINTF("steps=%lu heading=%lu valid=%u errors=%lu acc=%ld,%ld,%ld mag=%ld,%ld,%ld\r\n",
-            (unsigned long)Motion.steps, (unsigned long)COMP_Value.Heading,
-            (unsigned)Motion.heading_valid, (unsigned long)SensorErrors,
+        /* Integer formatting avoids enabling printf-float or changing BLE rounding.
+         * Log full internal distance, not the BLE packet's saturated field. */
+        uint32_t heading10 = (uint32_t)lroundf(Motion.heading_deg * 10.0f) % 3600U;
+        double distance = Motion.distance_m;
+        uint32_t metres = (uint32_t)distance;
+        uint32_t tenths = (uint32_t)((distance - metres) * 10.0 + 0.5);
+        if (tenths == 10U) { ++metres; tenths = 0U; }
+        XPRINTF("P2DATA,ms=%lu,acc_x=%ld,acc_y=%ld,acc_z=%ld,mag_x=%ld,mag_y=%ld,mag_z=%ld,steps=%lu,heading=%ld.%lu,heading_valid=%u,distance=%lu.%lu,sensor_errors=%lu,ble_connected=%d,ble_subscribed=%u,ble_errors=%lu,sample_count=%lu,mag_sample_count=%lu,acc_fresh=%u,mag_fresh=%u,log_dropped=%lu\r\n",
+            (unsigned long)now,
             (long)ACC_Value.x, (long)ACC_Value.y, (long)ACC_Value.z,
-            (long)MAG_Value.x, (long)MAG_Value.y, (long)MAG_Value.z);
+            (long)MAG_Value.x, (long)MAG_Value.y, (long)MAG_Value.z,
+            (unsigned long)Motion.steps,
+            Motion.heading_valid ? (long)(heading10/10U) : -1L,
+            Motion.heading_valid ? (unsigned long)(heading10%10U) : 0UL,
+            (unsigned)Motion.heading_valid, (unsigned long)metres, (unsigned long)tenths,
+            (unsigned long)SensorErrors,
+            connected, (unsigned)(W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG) != 0),
+            (unsigned long)BleErrors, (unsigned long)AccSamples, (unsigned long)MagSamples,
+            (unsigned)(HaveAcc && now-LastAccTick <= P2_ACC_FRESH_MS),
+            (unsigned)(HaveMag && now-LastMagTick <= P2_MAG_FRESH_MS), (unsigned long)LogDropped);
+        static uint32_t reported_errors;
+        if (SensorErrors != reported_errors) {
+            reported_errors = SensorErrors;
+            XPRINTF("P2ERROR,sensor_io_or_stale,count=%lu\r\n", (unsigned long)SensorErrors);
+        }
     }
 }
 
@@ -259,6 +310,7 @@ int main(void)
   /* Infinite loop */
   while (1)
   {
+      UART5_LogPoll();
       if(!connected) {
           static uint32_t last_blink;
           if (HAL_GetTick() - last_blink >= 500U) {
@@ -323,7 +375,10 @@ void InitTargetPlatform(void)
   /* Initialize UART */
   MX_UART5_UART_Init();
 
-  InitLSM(); //N4S
+  P2_MotionInit(&Motion);
+  XPRINTF("P2INFO,boot,magnetic_calibration=%s,uart=115200_8N1\r\n",
+          P2_MAG_CALIBRATED ? "MEASURED" : "UNCALIBRATED");
+  InitLSM();
 
 
 }
@@ -378,9 +433,35 @@ void MX_USART1_UART_Init(void)
 
 }
 
+/* Main-context producer/consumer; UART IRQ only reads the active slot.
+ * Keep that slot until HAL signals TX complete. No busy-wait, heap or flash. */
+static uint8_t LogQueue[P2_LOG_QUEUE_DEPTH][P2_LOG_LINE_BYTES];
+static uint16_t LogLengths[P2_LOG_QUEUE_DEPTH];
+static unsigned LogHead, LogTail, LogCount;
+static uint8_t LogActive;
+static void UART5_LogPoll(void) {
+    if (LogActive) {
+        if (UartHandle.gState != HAL_UART_STATE_READY) return;
+        LogActive = 0;
+        LogTail = (LogTail + 1U) % P2_LOG_QUEUE_DEPTH;
+        --LogCount;
+    }
+    if (LogCount && UartHandle.gState == HAL_UART_STATE_READY) {
+        if (HAL_UART_Transmit_IT(&UartHandle, LogQueue[LogTail], LogLengths[LogTail]) == HAL_OK)
+            LogActive = 1;
+    }
+}
 void UART5_Transmit(uint8_t* BufferToWrite, uint16_t BytesToWrite) {
-
-	HAL_UART_Transmit(&UartHandle, (uint8_t*)BufferToWrite, BytesToWrite,1000);
+    UART5_LogPoll();
+    if (!BytesToWrite || BytesToWrite >= P2_LOG_LINE_BYTES || LogCount == P2_LOG_QUEUE_DEPTH) {
+        if (LogDropped != UINT32_MAX) ++LogDropped;
+        return; /* Drop whole records, never truncate them into malformed lines. */
+    }
+    memcpy(LogQueue[LogHead], BufferToWrite, BytesToWrite);
+    LogLengths[LogHead] = BytesToWrite;
+    LogHead = (LogHead + 1U) % P2_LOG_QUEUE_DEPTH;
+    ++LogCount;
+    UART5_LogPoll();
 }
 
 
@@ -429,13 +510,23 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   */
 static void SendMotionData(void)
 {
+  if (!connected || !W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG)) return;
 
   BSP_MOTION_SENSOR_Axes_t summary;
+  BSP_MOTION_SENSOR_Axes_t acc = ACC_Value, mag = MAG_Value;
+  uint32_t now = HAL_GetTick();
+  /* -32768 cannot be a valid configured sensor value. Preserve packet layout
+   * while explicitly marking stale raw channels; document this sentinel. */
+  if (!HaveAcc || now-LastAccTick > P2_ACC_FRESH_MS)
+      acc.x = acc.y = acc.z = INT16_MIN;
+  if (!HaveMag || now-LastMagTick > P2_MAG_FRESH_MS)
+      mag.x = mag.y = mag.z = INT16_MIN;
   /* Avoid aliasing unrelated structs and signed 16-bit BLE wraparound. */
   summary.x = COMP_Value.Steps > 3276U ? 3276 : (int32_t)COMP_Value.Steps;
   summary.y = Motion.heading_valid ? (int32_t)COMP_Value.Heading : -1;
   summary.z = (int32_t)COMP_Value.Distance;
-  AccGyroMag_Update(&ACC_Value, &summary, &MAG_Value);
+  if (AccGyroMag_Update(&acc, &summary, &mag) != BLE_STATUS_SUCCESS &&
+      BleErrors != UINT32_MAX) ++BleErrors;
 }
 
 
@@ -906,7 +997,7 @@ static void Init_BlueNRG_Stack(void)
   aci_hal_read_config_data(CONFIG_DATA_RANDOM_ADDRESS, 6, &data_len_out, bdaddr);
 
   if ((bdaddr[5] & 0xC0) != 0xC0) {
-    XPRINTF("\r\nStatic Random address not well formed.\r\n");
+    XPRINTF("P2ERROR,invalid_ble_address\r\n");
     while(1);
   }
   
@@ -918,14 +1009,14 @@ static void Init_BlueNRG_Stack(void)
 
   ret = aci_gatt_init();    
   if(ret){
-     XPRINTF("\r\nGATT_Init failed\r\n");
+     XPRINTF("P2ERROR,gatt_init_failed\r\n");
      goto fail;
   }
 
   ret = aci_gap_init_IDB05A1(GAP_PERIPHERAL_ROLE_IDB05A1, 0, 0x07, &service_handle, &dev_name_char_handle, &appearance_char_handle);
 
   if(ret != BLE_STATUS_SUCCESS){
-     XPRINTF("\r\nGAP_Init failed\r\n");
+     XPRINTF("P2ERROR,gap_init_failed\r\n");
      goto fail;
   }
 
@@ -933,7 +1024,7 @@ static void Init_BlueNRG_Stack(void)
                                    7/*strlen(BoardName)*/, (uint8_t *)BoardName);
 
   if(ret){
-     XPRINTF("\r\naci_gatt_update_char_value failed\r\n");
+     XPRINTF("P2ERROR,ble_name_update_failed\r\n");
     while(1);
   }
 
@@ -943,15 +1034,15 @@ static void Init_BlueNRG_Stack(void)
                                      USE_FIXED_PIN_FOR_PAIRING, 123456,
                                      BONDING);
   if (ret != BLE_STATUS_SUCCESS) {
-     XPRINTF("\r\nGAP setting Authentication failed\r\n");
+     XPRINTF("P2ERROR,ble_auth_init_failed\r\n");
      goto fail;
   }
 
-  XPRINTF("SERVER: BLE Stack Initialized \r\n"
-         "\tHWver= %d.%d\r\n"
-         "\tFWver= %d.%d.%c\r\n"
-         "\tBoardName= %s\r\n"
-         "\tBoardMAC = %x:%x:%x:%x:%x:%x\r\n\n",
+  XPRINTF("P2INFO,ble_initialized\r\n"
+         "P2INFO,ble_hw=%d.%d\r\n"
+         "P2INFO,ble_fw=%d.%d.%c\r\n"
+         "P2INFO,board_name=%s\r\n"
+         "P2INFO,ble_address=%x:%x:%x:%x:%x:%x\r\n",
          ((hwVersion>>4)&0x0F),(hwVersion&0x0F),
          fwVersion>>8,
          (fwVersion>>4)&0xF,
@@ -979,11 +1070,11 @@ static void Init_BlueNRG_Custom_Services(void)
   ret = Add_HW_SW_ServW2ST_Service();
   if(ret == BLE_STATUS_SUCCESS)
   {
-     XPRINTF("HW & SW Service W2ST added successfully\r\n");
+     XPRINTF("P2INFO,ble_services_ready\r\n");
   }
   else
   {
-     XPRINTF("\r\nError while adding HW & SW Service W2ST\r\n");
+     XPRINTF("P2ERROR,ble_service_init_failed\r\n");
   }
 
 }

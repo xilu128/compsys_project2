@@ -5,7 +5,7 @@
 #include <stdbool.h>
 typedef struct { float x, y, z; } P2_Vector;
 typedef struct {
-    uint32_t steps, last_ms, peak_ms, start_ms;
+    uint32_t steps, last_ms, peak_ms, start_ms, trough_ms;
     float distance_m, heading_deg, baseline, filtered, previous;
     P2_Vector gravity, mag_bias, mag_scale;
     bool initialized, armed, heading_valid;

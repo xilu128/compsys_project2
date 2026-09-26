@@ -1,0 +1,9 @@
+0x08001188 in ?? ()
+Hardware assisted breakpoint 1 at 0x8005d78: file D:/COMPSYS704/COMPSYS704_Project2/compsys_project2/Projects/STM32L476JG-SensorTile/Applications/ALLMEMS1/Src/main.c, line 246.
+
+Breakpoint 1, main () at D:/COMPSYS704/COMPSYS704_Project2/compsys_project2/Projects/STM32L476JG-SensorTile/Applications/ALLMEMS1/Src/main.c:246
+246	{
+#0  main () at D:/COMPSYS704/COMPSYS704_Project2/compsys_project2/Projects/STM32L476JG-SensorTile/Applications/ALLMEMS1/Src/main.c:246
+pc             0x8005d78           0x8005d78 <main>
+sp             0x20018000          0x20018000
+[Inferior 1 (Remote target) detached]

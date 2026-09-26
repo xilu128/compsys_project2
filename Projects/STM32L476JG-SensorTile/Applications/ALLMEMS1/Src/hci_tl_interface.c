@@ -82,7 +82,7 @@ int32_t HCI_TL_SPI_Init(void* pConf)
   
   HAL_GPIO_WritePin(HCI_TL_SPI_CS_PORT, HCI_TL_SPI_CS_PIN, GPIO_PIN_SET);
 
-  XPRINTF("\r\nIntialised HCI SPI.\r\n");
+  XPRINTF("P2INFO,hci_spi_initialized\r\n");
     
   return BSP_SPI1_Init();
 }

@@ -1,0 +1,12 @@
+steps=0 heading=-1 valid=0 errors=0 acc=-12,20,966 mag=-459,-461,710 ms=1000 samples=42,42 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-16,22,960 mag=-453,-461,707 ms=2000 samples=93,93 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-10,20,968 mag=-455,-459,713 ms=3000 samples=144,144 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-12,20,960 mag=-450,-461,713 ms=4000 samples=195,194 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-14,16,964 mag=-452,-458,701 ms=5000 samples=247,245 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-16,24,970 mag=-455,-468,707 ms=6000 samples=298,296 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-18,20,966 mag=-452,-462,710 ms=7000 samples=349,347 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=228 valid=1 errors=0 acc=-12,16,960 mag=-453,-473,710 ms=8000 samples=400,398 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-18,24,960 mag=-453,-458,708 ms=9000 samples=451,449 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=227 valid=1 errors=0 acc=-12,20,958 mag=-458,-461,705 ms=10000 samples=503,500 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=228 valid=1 errors=0 acc=-18,18,968 mag=-450,-465,710 ms=11000 samples=554,551 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
+steps=0 heading=228 valid=1 errors=0 acc=-14,16,966 mag=-452,-465,707 ms=12000 samples=605,601 ble=0 subscribed=0 ble_errors=0 distance=0.0 fresh=1,1
