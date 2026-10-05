@@ -103,6 +103,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     }
 }
 bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
+    bool was_valid = s->heading_valid;
     s->heading_valid = false;
     if (!s->initialized || s->last_ms - s->start_ms < P2_SETTLE_MS) return false;
     if (!isfinite(s->mag_scale.x) || !isfinite(s->mag_scale.y) ||
@@ -120,10 +121,33 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
     P2_Vector north = {m.x-dot*up.x, m.y-dot*up.y, m.z-dot*up.z};
     float horizontal = norm(north);
     if (horizontal < P2_HORIZONTAL_MIN_MGAUSS || fabsf(up.x) > P2_FORWARD_VERTICAL_LIMIT) return false;
-    /* north x up points east. atan2 is tilt compensated and wrap safe. */
+    /* Signed horizontal component in the register-axis basis. The explicit
+     * board yaw convention is verified separately from this projection. */
     float east_x = north.y*up.z - north.z*up.y;
-    float heading = wrap(atan2f(east_x, north.x)*57.295779513f + P2_HEADING_OFFSET_DEG);
-    s->heading_deg = heading;
+    float heading = wrap(P2_HEADING_SIGN * atan2f(east_x, north.x)*57.295779513f + P2_HEADING_OFFSET_DEG);
+    /* Average unit vectors, not degree values: 359/1 degrees must average at
+     * north, never south. Invalid input above is immediately invalid; after
+     * invalidity/gaps seed from the new observation, not an old output. */
+    float radians = heading * 0.01745329252f;
+    uint32_t elapsed = s->last_ms - s->heading_last_ms;
+    float sn = sinf(radians), cs = cosf(radians);
+    if (!was_valid || elapsed > P2_SAMPLE_GAP_MS) {
+        s->heading_sin = sn;
+        s->heading_cos = cs;
+    } else if (elapsed != 0U) {
+        float dt = elapsed * 0.001f;
+        float alpha = dt / (P2_HEADING_FILTER_S + dt);
+        s->heading_sin += alpha * (sn - s->heading_sin);
+        s->heading_cos += alpha * (cs - s->heading_cos);
+        /* An abrupt ~180-degree change can cancel the vectors. Re-seed rather
+         * than publish atan2(0,0). Normal smooth rotations never need this. */
+        if (s->heading_sin*s->heading_sin + s->heading_cos*s->heading_cos < 0.0001f) {
+            s->heading_sin = sn;
+            s->heading_cos = cs;
+        }
+    }
+    s->heading_last_ms = s->last_ms;
+    s->heading_deg = wrap(atan2f(s->heading_sin, s->heading_cos)*57.295779513f);
     s->heading_valid = true;
     return true;
 }

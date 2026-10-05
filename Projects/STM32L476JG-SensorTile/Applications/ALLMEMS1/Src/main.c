@@ -370,7 +370,7 @@ void InitTargetPlatform(void)
 
   P2_MotionInit(&Motion);
   XPRINTF("P2INFO,boot,firmware=" P2_FIRMWARE_VERSION ",magnetic_calibration=%s,uart=115200_8N1\r\n",
-          P2_MAG_CALIBRATED ? "MEASURED" : "UNCALIBRATED");
+          P2_MAG_CALIBRATED ? "MEASURED_3D" : P2_MAG_CALIBRATION_LABEL);
   InitLSM();
 
 
