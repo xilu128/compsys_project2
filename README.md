@@ -6,12 +6,16 @@ heading with tilt compensation, and sends measurements through the existing
 ST BLE Sensor application interface. Distance is an additional fixed-stride
 estimate, not an independently measured position.
 
-**Verification boundary (Windows, 2026-09-23):** Debug/Release clean builds,
-desktop tests, STLINK programming/readback, debugger entry to `main`, UART,
-real sensors and Windows BLE notifications/reconnect have passed. See
-`VALIDATION.md` and `docs/evidence/`. Phone-app compatibility, mounting axes,
-human-motion accuracy and measured calibration remain NOT TESTED. Default
-magnetic calibration is identity (UNCALIBRATED), not a measured calibration.
+**Current revision (Windows, 2026-10-05): `heading-fix-1`.** Debug clean build,
+desktop regression tests, STLINK programming/verification, UART and Windows
+BLE runtime checks passed. Heading now uses provisional measured XY bias,
+an empirical horizontal-turn direction correction and circular smoothing.
+Only rotation trials 2 and 3 were used; trial 1 was excluded. Persistent
+magnetic-input drift is NOT resolved. Full 3D calibration, mounting-axis/tilt
+validation and independent absolute-bearing accuracy remain outstanding.
+See `VALIDATION.md` and `docs/heading-fix-20261005.md` for evidence and limits.
+Historical Debug/Release, debugger and transport results below do not replace
+validation of the current revision. Release was not rebuilt for this update.
 
 ## Scope from the local course brief
 
@@ -106,10 +110,18 @@ Application sources are in `Projects/STM32L476JG-SensorTile/Applications/ALLMEMS
   reset on reboot. This is a tunable baseline, not a universal gait classifier.
 - Heading: low-pass acceleration estimates up. Subtract magnetic hard-iron bias,
   apply diagonal scale, project magnetic north into the plane normal to up,
-  then use `atan2` to find the heading of body +X. Heading is clockwise from
-  **magnetic** north in `[0,360)` degrees. No local declination is guessed.
-  Sensor register axes are used for both sensors (datasheet Fig. 2). Mount
-  **+X forward and +Z up**; confirm board/chip orientation experimentally.
+  then use `atan2` to find the heading of body +X. A configurable sign is
+  applied before the heading offset; `-1` matches the user's labelled clockwise
+  and counterclockwise horizontal turns. A 0.15 s sin/cos low-pass handles the
+  359/0 degree boundary without averaging through 180 degrees. Invalid samples
+  immediately invalidate heading; reacquisition resets the filter.
+  Output is `[0,360)` degrees with clockwise increase intended. This is a
+  **magnetic**, not true-north, estimate; absolute north and the full 3D axis
+  convention are not independently verified. No local declination is guessed.
+  Raw sensor register axes and the original tilt projection are retained.
+  Intended mounting is **+X forward and +Z up**; verify it experimentally.
+  Current bias is `(12.637410, -161.102725, 0)` mGauss with unit scales,
+  labelled `XY_PROVISIONAL`, not a full 3D calibration.
 - Reject weak/strong magnetic field, invalid gravity, nearly vertical +X and
   stale data. An invalid heading is sent as -1 degree. Magnitude checks cannot
   detect all magnetic disturbances, particularly uniform field distortions.
@@ -118,9 +130,21 @@ Application sources are in `Projects/STM32L476JG-SensorTile/Applications/ALLMEMS
 
 ## Phone and serial data
 
+For the local Windows BLE viewer, install Python with Tkinter and `bleak`,
+then run `python tools/ble_monitor.py` from this source root. Enable Windows
+Bluetooth and disconnect the iPad/phone first. The viewer connects to `P202S01`
+by default; use `--no-auto` to edit the target name/address before connecting.
+It shows live raw XYZ, steps, heading, distance and notification rate, marks
+stale/invalid data, and retries a lost connection. Check **Save CSV** to record
+under `../logs/ble_monitor/`; uncheck it or close normally to finish the file.
+The viewer is local-only and does not flash firmware. BLE logs contain about
+20 Hz snapshots, not the complete approximately 50 Hz sensor stream.
+
 Advertising and GAP device names are now both `P202S01` (Project 2, Group 02,
 step-confirm revision 01), configured by `P2_BLE_NAME`. UART boot output includes
-`firmware=step-confirm-1`. The app's `FP-SNS-ALLMEMS1 v4.2.0` label describes the
+`firmware=heading-fix-1,magnetic_calibration=XY_PROVISIONAL`. The unchanged
+`P202S01` advertising name is not a revision identifier. The app's
+`FP-SNS-ALLMEMS1 v4.2.0` label describes the
 inherited ST profile, not this project's firmware revision. After flashing,
 disconnect and scan again; a cached name alone is not proof of firmware version.
 This board's address is
@@ -162,6 +186,14 @@ the invalid sentinel. BLE update failures increment `ble_errors`. LED is on
 when connected and blinks while disconnected. Counts reset on reboot.
 
 ## Calibration and tuning before evaluation
+
+The current XY-only fit is provisional for the recorded mounting/environment.
+It cannot determine Z bias or general soft-iron distortion. Keep
+`P2_MAG_CALIBRATED=0` until a measured 3D calibration is performed. A laptop
+case or nearby magnet may invalidate heading; do not relax the field-validity
+limits merely to make the display show a number. The limits also cannot detect
+every plausible-magnitude field distortion. Circular smoothing reduces fast
+jitter, not sustained external-field changes, and introduces response lag.
 
 1. Keep `P2_LOG_PERIOD_MS` at its default `100U`, and capture UART output while
    rotating the **assembled wearable** slowly through all 3D orientations for

@@ -8,6 +8,8 @@ ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined 
 "$out/test_p2"
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_step_bouts.c "$app/Src/p2_motion.c" -lm -o "$out/test_step_bouts"
 "$out/test_step_bouts"
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_heading.c "$app/Src/p2_motion.c" -lm -o "$out/test_heading"
+"$out/test_heading"
 ${PYTHON:-python3} tests/test_calibration.py
 ${PYTHON:-python3} tests/test_packet.py
 ${PYTHON:-python3} tests/test_motion_replay.py

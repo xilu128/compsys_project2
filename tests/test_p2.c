@@ -10,6 +10,8 @@
 static void near(float actual, float expected, float eps) { assert(fabsf(actual-expected) < eps); }
 static void settle(P2_Motion *s) {
     P2_MotionInit(s);
+    /* Analytic vectors below are already bias-free, unlike the hardware logs. */
+    s->mag_bias = (P2_Vector){0,0,0};
     for (unsigned t=0; t<2000; t+=20) P2_MotionAcceleration(s,(P2_Vector){0,0,1000},t);
 }
 static void walking(float hz, uint32_t origin) {
@@ -54,12 +56,13 @@ int main(void) {
     assert(detected>0);
     const P2_Vector mag[]={{300,0,-400},{0,300,-400},{-300,0,-400},{0,-300,-400}};
     for (unsigned i=0;i<4;++i) {
-        settle(&s); assert(P2_MotionHeading(&s,mag[i])); near(s.heading_deg,90.0f*i,0.01f);
+        settle(&s); assert(P2_MotionHeading(&s,mag[i])); near(s.heading_deg,(float)((360U-90U*i)%360U),0.01f);
     }
     /* Analytic 30-degree pitch: north and gravity rotate together. */
     settle(&s); s.gravity=(P2_Vector){-500,0,866.0254f};
     assert(P2_MotionHeading(&s,(P2_Vector){459.8076f,0,-196.4102f})); near(s.heading_deg,0,0.01f);
-    assert(P2_MotionHeading(&s,(P2_Vector){200,300,-346.4102f})); near(s.heading_deg,90,0.01f);
+    settle(&s); s.gravity=(P2_Vector){-500,0,866.0254f};
+    assert(P2_MotionHeading(&s,(P2_Vector){200,300,-346.4102f})); near(s.heading_deg,270,0.01f);
     assert(!P2_MotionHeading(&s,(P2_Vector){0,0,0}));
     assert(!P2_MotionHeading(&s,(P2_Vector){9000,0,0}));
     assert(!P2_MotionHeading(&s,(P2_Vector){NAN,0,0}));

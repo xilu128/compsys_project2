@@ -8,6 +8,8 @@ typedef struct {
     uint32_t steps, last_ms, peak_ms, start_ms, trough_ms;
     uint32_t pending_steps, candidate_interval_ms;
     float distance_m, heading_deg, baseline, filtered, previous;
+    uint32_t heading_last_ms;
+    float heading_sin, heading_cos;
     P2_Vector gravity, mag_bias, mag_scale;
     bool initialized, armed, heading_valid;
     bool have_peak, walking;

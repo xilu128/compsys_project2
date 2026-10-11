@@ -22,6 +22,17 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'C compilation failed' }
     & $exe
     if ($LASTEXITCODE -ne 0) { throw 'C tests failed' }
+    foreach ($name in @('test_heading','test_step_bouts')) {
+        $extraExe=Join-Path $out ($name+'.exe')
+        $extraArgs=@()
+        if ([IO.Path]::GetFileNameWithoutExtension($Compiler) -eq 'zig') { $extraArgs += 'cc' }
+        $extraArgs += @('-std=c99','-Wall','-Wextra','-Werror','-pedantic',('-I'+(Join-Path $app 'Inc')),
+            (Join-Path $PSScriptRoot ($name+'.c')),(Join-Path $app 'Src\p2_motion.c'),'-o',$extraExe)
+        & $Compiler @extraArgs
+        if ($LASTEXITCODE -ne 0) { throw "$name compilation failed" }
+        & $extraExe
+        if ($LASTEXITCODE -ne 0) { throw "$name failed" }
+    }
     & $Python (Join-Path $PSScriptRoot 'test_calibration.py')
     if ($LASTEXITCODE -ne 0) { throw 'Calibration tests failed' }
     & $Python (Join-Path $PSScriptRoot 'test_packet.py')

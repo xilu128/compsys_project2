@@ -1,4 +1,48 @@
-# Validation record — step confirmation update 2026-09-26
+# Validation record
+
+## Heading update (`heading-fix-1`) — 2026-10-05, Windows
+
+Debug clean build: 0 errors / 0 warnings, text 38888, data 112, bss 18840 bytes.
+Windows motion/sensor/packet/calibration/logging/bout tests and new heading
+regressions PASS. New tests include circular wrap, measured XY bias, jitter,
+direction, continued turn response, invalid/reacquisition, gaps and clock wrap.
+Release and Windows sanitizers were not run for this revision.
+
+Only trial 2 (`ble_20261005_130753_309873.csv`) and trial 3
+(`ble_20261005_131056_903890.csv`) were used. Trial 1 was excluded.
+Trial 2 supplies a provisional XY circle fit. Real C replay of trial 3 gives
+CW +359.04 degrees and CCW -359.01 degrees, with no invalid heading after the
+initial settling second. This is a 20 Hz snapshot replay of a 50 Hz sensor
+algorithm, not a physical accuracy test. Short stationary intervals in trial 3
+improve, but trial 2's user-reported stationary opening still varies and its
+corrected angular variation is larger. Persistent magnetic-input drift is
+NOT solved. Full 3D calibration, absolute bearings and physical tilt/yaw
+validation of this revision remain outstanding.
+
+Full 1 MB pre-flash backup saved as
+`../environment_backup/before_heading_fix_20261005.bin`. Application BIN was
+written at **0x08004000** with STLINK-V3MODS under reset, 1000 kHz. Programmer
+verified the download; only application sectors 8-27 were erased. Bootloader
+and option bytes were not changed. UART confirms `firmware=heading-fix-1` and
+`magnetic_calibration=XY_PROVISIONAL`, sensor IDs 0x33/0x40 and BLE startup.
+
+Post-flash bench capture `../logs/heading_fix1_bench_20261005_133244.log`:
+300 complete records / 29.9 s, all headings valid and both sensors fresh,
+zero malformed records, sensor errors, BLE errors and log drops. Steps stay 0.
+Sensor counters indicate 51.24 Hz acceleration / 50.87 Hz magnetic acquisition.
+BLE is subscribed throughout; the monitor visibly receives at about 20 Hz.
+Heading range **140.3-149.4 degrees**, population SD 1.933 degrees. Physical
+stillness and distance from the computer case during this capture are NOT yet
+confirmed, so this cannot establish stationary drift or absolute accuracy.
+
+Current Debug ELF SHA256:
+`ADF407AB0CE3F74CE369A21989A44DE30CCA1A2FDEB47B06B95BCCFDE4026F97`.
+BIN SHA256:
+`5660150F742A5F1A17B605D7DF87B02EC6DB9FD1B94DC7D03843509D200CBA0B`.
+Details, experiment windows, limitations and reproduction commands:
+[`docs/heading-fix-20261005.md`](docs/heading-fix-20261005.md).
+All entries below are historical and must not be read as current binary hashes
+or validation of `heading-fix-1`.
 
 ## Step confirmation (`step-confirm-1`) — software validation
 

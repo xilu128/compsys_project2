@@ -1,6 +1,6 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "step-confirm-1"
+#define P2_FIRMWARE_VERSION "heading-fix-1"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
@@ -20,6 +20,11 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_STEP_CADENCE_RATIO 1.6f
 #define P2_STEP_LENGTH_M 0.70f
 #define P2_HEADING_OFFSET_DEG 0.0f
+/* Empirical board yaw convention: trial 3's labelled clockwise turn produced
+ * -360 degrees with the original sign. Do not infer a 3D axis remapping from
+ * two horizontal turns; raw XYZ and the tilt projection are kept unchanged. */
+#define P2_HEADING_SIGN (-1.0f)
+#define P2_HEADING_FILTER_S 0.15f /* Circular low-pass; never latch a stale heading. */
 /* Seconds, milliseconds, mg and mGauss: keep tunable physical limits here. */
 #define P2_GRAVITY_FILTER_S 0.6f
 #define P2_MOTION_FILTER_S 0.06f
@@ -38,11 +43,15 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_MAG_FRESH_MS 200U
 #define P2_SENSOR_RETRY_MS 1000U
 #define P2_SENSOR_STALL_MS 1000U
-#define P2_MAG_CALIBRATED 0 /* Set to 1 only after measuring calibration. */
-/* Measured hard-iron offsets and diagonal soft-iron scale, in sensor axes.
- * Replace these after a full 3D calibration; defaults are uncalibrated. */
-#define P2_MAG_BIAS_X 0.0f
-#define P2_MAG_BIAS_Y 0.0f
+#define P2_MAG_CALIBRATED 0 /* Full 3D calibration is still outstanding. */
+#define P2_MAG_CALIBRATION_LABEL "XY_PROVISIONAL"
+/* Raw magnetometer-register axes, BEFORE mapping to accelerometer body axes.
+ * XY circle fitted ONLY to trial 2 (20261005_130753_309873, first 33 s).
+ * Independently checked on trial 3 (131056_903890). Trial 1 is excluded.
+ * Near-horizontal, current mounting/environment only: Z bias and soft-iron
+ * coupling are unobservable in these data. Do not claim a full 3D calibration. */
+#define P2_MAG_BIAS_X 12.637410f
+#define P2_MAG_BIAS_Y (-161.102725f)
 #define P2_MAG_BIAS_Z 0.0f
 #define P2_MAG_SCALE_X 1.0f
 #define P2_MAG_SCALE_Y 1.0f
