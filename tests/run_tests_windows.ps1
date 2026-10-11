@@ -33,6 +33,8 @@ try {
         & $extraExe
         if ($LASTEXITCODE -ne 0) { throw "$name failed" }
     }
+    & $Python (Join-Path $PSScriptRoot 'test_stride_calibration.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Stride calibration tests failed' }
     & $Python (Join-Path $PSScriptRoot 'test_calibration.py')
     if ($LASTEXITCODE -ne 0) { throw 'Calibration tests failed' }
     & $Python (Join-Path $PSScriptRoot 'test_packet.py')

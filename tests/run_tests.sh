@@ -14,3 +14,5 @@ ${PYTHON:-python3} tests/test_calibration.py
 ${PYTHON:-python3} tests/test_packet.py
 ${PYTHON:-python3} tests/test_motion_replay.py
 ${PYTHON:-python3} tests/test_logging.py
+
+${PYTHON:-python3} tests/test_stride_calibration.py

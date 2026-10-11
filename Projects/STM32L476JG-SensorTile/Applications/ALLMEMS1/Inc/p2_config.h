@@ -1,6 +1,6 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "heading-fix-1"
+#define P2_FIRMWARE_VERSION "stride-ready-1"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
@@ -18,12 +18,27 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_STEP_MAX_MS 1500U
 #define P2_STEP_CONFIRM_COUNT 3U
 #define P2_STEP_CADENCE_RATIO 1.6f
+/* Calibrate with measured distance, manual steps and walking-only duration.
+ * Adaptive mode stays off until independently validated coefficients exist. */
 #define P2_STEP_LENGTH_M 0.70f
+#define P2_STRIDE_ADAPTIVE 0
+#define P2_STRIDE_INTERCEPT_M 0.70f
+#define P2_STRIDE_SLOPE_M_PER_HZ 0.0f
+#define P2_STRIDE_MIN_HZ 0.8f
+#define P2_STRIDE_MAX_HZ 2.5f
+#define P2_STRIDE_MIN_M 0.25f
+#define P2_STRIDE_MAX_M 1.50f
 #define P2_HEADING_OFFSET_DEG 0.0f
 /* Empirical board yaw convention: trial 3's labelled clockwise turn produced
  * -360 degrees with the original sign. Do not infer a 3D axis remapping from
  * two horizontal turns; raw XYZ and the tilt projection are kept unchanged. */
 #define P2_HEADING_SIGN (-1.0f)
+/* Heuristic strength guard, not a trained interference classifier.
+ * Startup must be away from magnetic interference. */
+#define P2_MAG_REFERENCE_MS 1000U
+#define P2_MAG_STABILITY_RATIO 0.10f
+#define P2_MAG_RECOVERY_MS 500U
+#define P2_MAG_RELATIVE_CHANGE_MAX 0.35f
 #define P2_HEADING_FILTER_S 0.15f /* Circular low-pass; never latch a stale heading. */
 /* Seconds, milliseconds, mg and mGauss: keep tunable physical limits here. */
 #define P2_GRAVITY_FILTER_S 0.6f

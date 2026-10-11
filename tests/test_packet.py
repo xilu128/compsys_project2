@@ -16,3 +16,15 @@ for invalid in (b'',bytes(19),bytes(21)):
     else:
         raise AssertionError('Malformed packet accepted')
 print('PASS: BLE packet length, signed units, timestamp, steps, distance, invalid heading')
+
+from ble_monitor import packet
+for status in (-1, -2, -3, -4):
+    p = packet(struct.pack('<H9h', 1, 0, 0, 1000, 0, status*10, 0, 300, 0, 250))
+    assert p['heading'] == status and not p['heading_valid']
+try:
+    packet(struct.pack('<H9h', 1, 0, 0, 1000, 0, -50, 0, 300, 0, 250))
+except ValueError:
+    pass
+else:
+    raise AssertionError('Unknown heading status accepted')
+print('PASS: legacy and detailed heading status sentinels')

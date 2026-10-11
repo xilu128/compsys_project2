@@ -2,6 +2,8 @@
 import argparse
 import asyncio
 import csv
+import math
+import sys
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -25,10 +27,10 @@ FIELDS = ['host_time_iso', 'session', 'device_tick_8ms', 'acc_x_mg', 'acc_y_mg',
 
 def packet(data, session=1):
     p = decode(data)
-    if p['steps'] < 0 or p['distance'] < 0 or not (p['heading'] == -1 or 0 <= p['heading'] < 360):
+    if p['steps'] < 0 or p['distance'] < 0 or not (p['heading'] in (-1, -2, -3, -4) or 0 <= p['heading'] < 360):
         raise ValueError('Invalid summary fields in motion packet')
     p.update(received=time.monotonic(), host_time_iso=datetime.now().astimezone().isoformat(),
-             session=session, heading_valid=p['heading'] != -1,
+             session=session, heading_valid=p['heading'] >= 0,
              acc_fresh=-32768 not in p['acc'], mag_fresh=-32768 not in p['mag'],
              raw_hex=bytes(data).hex())
     return p
@@ -76,7 +78,7 @@ class Receiver:
         if self.file:
             self.file.close()
             self.file = self.writer = None
-            self.emit('log', 'CSV 已保存')
+            self.emit('log', 'CSV saved')
 
     def log_packet(self, p):
         if not self.record.is_set():
@@ -97,7 +99,7 @@ class Receiver:
         except OSError as exc:
             self.record.clear()
             self.close_log()
-            self.emit('log', f'CSV 保存失败：{exc}')
+            self.emit('log', f'CSV save failed: {exc}')
 
     def run(self, target):
         try:
@@ -105,7 +107,7 @@ class Receiver:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            self.emit('status', f'蓝牙错误：{exc}')
+            self.emit('status', f'Bluetooth error: {exc}')
         finally:
             self.close_log()
             self.loop = self.task = None
@@ -118,7 +120,7 @@ class Receiver:
         session = 0
         while not self.stop.is_set():
             self.emit('state', 'scanning')
-            self.emit('status', f'扫描 {target} … 请给板子供电，并断开 iPad App')
+            self.emit('status', f'Scanning {target} … Power on the board and disconnect the iPad app')
             try:
                 device = await BleakScanner.find_device_by_filter(
                     lambda d, a: d.address.upper() == target.upper()
@@ -127,12 +129,12 @@ class Receiver:
                 if self.stop.is_set():
                     break
                 if device is None:
-                    raise RuntimeError('未找到设备；检查供电、Windows 蓝牙和 iPad 占用')
-                self.emit('status', f'连接 {device.name or target} ({device.address}) …')
+                    raise RuntimeError('Device not found; check power, Bluetooth and other app connections')
+                self.emit('status', f'Connecting to {device.name or target} ({device.address}) …')
                 async with BleakClient(device, timeout=25) as client:
                     char = client.services.get_characteristic(MOTION_UUID)
                     if char is None:
-                        raise RuntimeError('设备没有课程所需的运动数据特征值')
+                        raise RuntimeError('Required motion characteristic is missing')
                     session += 1
                     last_packet = time.monotonic()
 
@@ -148,20 +150,20 @@ class Receiver:
 
                     await client.start_notify(char, notified)
                     self.emit('state', 'connected')
-                    self.emit('status', f'已连接 {device.name or target} · 等待真实数据')
+                    self.emit('status', f'Connected to {device.name or target} · Waiting for live data')
                     while client.is_connected and not self.stop.is_set():
                         if not self.record.is_set():
                             self.close_log()
                         if time.monotonic() - last_packet > 8:
-                            raise RuntimeError('8 秒未收到通知，正在重新连接')
+                            raise RuntimeError('No notifications for 8 seconds; reconnecting')
                         await asyncio.sleep(.2)
                     if client.is_connected:
                         await client.stop_notify(char)
-                self.emit('status', '连接已断开，准备重连 …')
+                self.emit('status', 'Connection lost; reconnecting …')
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.emit('status', f'{exc}；5 秒后重试')
+                self.emit('status', f'{exc}; retrying in 5 seconds')
             self.emit('state', 'retry')
             for _ in range(25):
                 if self.stop.is_set():
@@ -177,49 +179,94 @@ class Monitor:
         self.total = self.bad = 0
         self.state = 'idle'
         self.closing = False
-        root.title('SensorTile BLE Monitor — Group 02')
-        root.geometry('1050x760')
-        root.minsize(850, 650)
-        root.configure(bg='#edf2f7')
-        style = ttk.Style()
+        root.title('SensorTile · Group 02')
+        root.geometry('1240x900')
+        root.minsize(1060, 800)
+        self.bg, self.ink, self.muted = '#f5f5f7', '#1d1d1f', '#6e6e73'
+        self.font = 'Helvetica Neue' if sys.platform == 'darwin' else 'Segoe UI'
+        root.configure(bg=self.bg)
+        style = ttk.Style(root)
         style.theme_use('clam')
-        style.configure('TLabel', font=('Microsoft YaHei UI', 10))
-        style.configure('TButton', font=('Microsoft YaHei UI', 10), padding=6)
-        wrap = ttk.Frame(root, padding=18)
+        style.configure('.', font=(self.font, 11), foreground=self.ink)
+        style.configure('TFrame', background=self.bg)
+        style.configure('TLabel', background=self.bg)
+        style.configure('TButton', background='#e8e8ed', borderwidth=0, padding=(16, 9))
+        style.map('TButton', background=[('active', '#dcdce2')])
+        style.configure('Primary.TButton', background='#0071e3', foreground='white')
+        style.map('Primary.TButton', background=[('disabled', '#d2d2d7'), ('active', '#0077ed')])
+        style.configure('TCheckbutton', background=self.bg)
+        style.configure('TEntry', padding=8, fieldbackground='white', bordercolor='#d2d2d7')
+        wrap = ttk.Frame(root, padding=24)
         wrap.pack(fill='both', expand=True)
-        ttk.Label(wrap, text='SensorTile · 实时蓝牙数据', font=('Microsoft YaHei UI', 21, 'bold')).pack(anchor='w')
-        ttk.Label(wrap, text='Group 02  |  Acc / Mag / 步数 / 磁航向 / 距离').pack(anchor='w', pady=(0,12))
+        header = ttk.Frame(wrap)
+        header.pack(fill='x', pady=(0, 18))
+        ttk.Label(header, text='SensorTile', font=(self.font, 27, 'bold')).pack(side='left')
+        ttk.Label(header, text='GROUP 02  /  LIVE MOTION MONITOR', foreground=self.muted).pack(side='left', padx=18)
+        self.connection = tk.StringVar(value='● Disconnected')
+        self.connection_label = ttk.Label(header, textvariable=self.connection, foreground=self.muted)
+        self.connection_label.pack(side='right')
         controls = ttk.Frame(wrap)
         controls.pack(fill='x')
-        ttk.Label(controls, text='设备名称或地址：').pack(side='left')
+        ttk.Label(controls, text='Device', foreground=self.muted).pack(side='left', padx=(0, 8))
         self.target = tk.StringVar(value=NAME)
-        self.entry = ttk.Entry(controls, textvariable=self.target, width=24)
-        self.entry.pack(side='left', padx=4)
-        self.connect = ttk.Button(controls, text='连接', command=self.start)
-        self.connect.pack(side='left', padx=5)
-        ttk.Button(controls, text='断开', command=self.stop).pack(side='left', padx=5)
+        self.entry = ttk.Entry(controls, textvariable=self.target, width=22)
+        self.entry.pack(side='left')
+        self.connect = ttk.Button(controls, text='Connect', command=self.start, style='Primary.TButton')
+        self.connect.pack(side='left', padx=8)
+        ttk.Button(controls, text='Disconnect', command=self.stop).pack(side='left')
         self.recording = tk.BooleanVar(value=False)
-        ttk.Checkbutton(controls, text='保存 CSV', variable=self.recording, command=self.toggle_record).pack(side='left', padx=12)
-        self.status = tk.StringVar(value='就绪')
-        ttk.Label(wrap, textvariable=self.status, wraplength=970, foreground='#245279').pack(anchor='w', pady=10)
-        cards = ttk.Frame(wrap)
-        cards.pack(fill='x')
+        ttk.Checkbutton(controls, text='Record CSV', variable=self.recording, command=self.toggle_record).pack(side='right')
+        self.status = tk.StringVar(value='Power on the board and connect to view live data.')
+        ttk.Label(wrap, textvariable=self.status, wraplength=980, foreground=self.muted).pack(anchor='w', pady=(10, 16))
+        overview = ttk.Frame(wrap)
+        overview.pack(fill='x')
+        self.compass = tk.Canvas(overview, width=236, height=230, bg='white', highlightthickness=0)
+        self.compass.pack(side='left', padx=(0, 12))
+        cards = ttk.Frame(overview)
+        cards.pack(side='left', fill='both', expand=True)
         self.values = {}
-        for col, (key, label) in enumerate([('steps','累计步数'),('heading','磁航向'),('distance','估算距离'),('rate','通知速率')]):
-            box = ttk.LabelFrame(cards, text=label, padding=12)
-            box.grid(row=0, column=col, padx=4, sticky='nsew')
-            cards.columnconfigure(col, weight=1)
+        descriptions = [('steps', 'Step count', 'Steps since board startup'),
+                        ('heading', 'Magnetic heading', 'Board direction · Magnetic north'),
+                        ('distance', 'Estimated distance', 'Firmware estimate · Model not reported'),
+                        ('rate', 'BLE notification rate', 'Receive rate · Sensor rate differs')]
+        for i, (key, label, note) in enumerate(descriptions):
+            box = tk.Frame(cards, bg='white', padx=18, pady=12)
+            box.grid(row=i//2, column=i%2, padx=(0, 10 if i%2 == 0 else 0),
+                     pady=(0 if i<2 else 10, 0), sticky='nsew')
+            cards.columnconfigure(i%2, weight=1, uniform='cards')
+            cards.rowconfigure(i//2, weight=1)
+            tk.Label(box, text=label, bg='white', fg=self.muted, font=(self.font, 11)).pack(anchor='w')
             self.values[key] = tk.StringVar(value='—')
-            ttk.Label(box, textvariable=self.values[key], font=('Segoe UI', 25, 'bold')).pack()
-        self.axes = tk.StringVar(value='Acc XYZ：— mg       Mag XYZ：— mGauss')
-        ttk.Label(wrap, textvariable=self.axes, font=('Consolas', 12)).pack(anchor='w', pady=12)
+            tk.Label(box, textvariable=self.values[key], bg='white', fg=self.ink,
+                     font=(self.font, 22 if key == 'heading' else 27, 'bold')).pack(anchor='w')
+            tk.Label(box, text=note, bg='white', fg=self.muted, font=(self.font, 10)).pack(anchor='w')
+        sensors = ttk.Frame(wrap)
+        sensors.pack(fill='x', pady=12)
+        self.sensor_values, self.sensor_states = {}, {}
+        for col, (key, title, unit) in enumerate([('acc', 'Acceleration', 'mg'), ('mag', 'Magnetic field', 'mGauss')]):
+            box = tk.Frame(sensors, bg='white', padx=16, pady=12)
+            box.grid(row=0, column=col, sticky='nsew', padx=(0, 12 if col==0 else 0))
+            sensors.columnconfigure(col, weight=1, uniform='sensors')
+            self.sensor_states[key] = tk.StringVar(value=f'{title} · {unit}  /  Waiting for data')
+            tk.Label(box, textvariable=self.sensor_states[key], bg='white', fg=self.muted,
+                     font=(self.font, 11)).pack(anchor='w')
+            row = tk.Frame(box, bg='white'); row.pack(fill='x', pady=(8, 0))
+            for axis, color in enumerate(['#ff3b30', '#248a3d', '#007aff']):
+                self.sensor_values[key, axis] = tk.StringVar(value='XYZ'[axis]+'  —')
+                tk.Label(row, textvariable=self.sensor_values[key, axis], bg='white', fg=color,
+                         font=(self.font, 15, 'bold'), anchor='w').pack(side='left', expand=True, fill='x')
+        charts_title = ttk.Frame(wrap); charts_title.pack(fill='x', pady=(0, 8))
+        ttk.Label(charts_title, text='Sensor trends', font=(self.font, 14, 'bold')).pack(side='left')
+        ttk.Label(charts_title, text='Last 15 seconds    X red  ·  Y green  ·  Z blue', foreground=self.muted).pack(side='right')
         self.canvas = tk.Canvas(wrap, bg='white', highlightthickness=0)
         self.canvas.pack(fill='both', expand=True)
-        self.stats = tk.StringVar(value='尚未收到数据')
-        ttk.Label(wrap, textvariable=self.stats).pack(anchor='w', pady=(8,2))
-        self.log_path = tk.StringVar(value=f'CSV 目录：{LOGS}')
-        ttk.Label(wrap, textvariable=self.log_path, wraplength=970).pack(anchor='w')
-        ttk.Label(wrap, text='无效航向显示“无效”；断线或超过 1 秒无通知显示“数据过期”。磁航向未代表已校准。\n步数/距离累计自板子启动；BLE 显示上限约 3276 步、3276.7 m。', foreground='#626b78').pack(anchor='w', pady=(8,0))
+        self.stats = tk.StringVar(value='No data received')
+        ttk.Label(wrap, textvariable=self.stats, foreground=self.muted).pack(anchor='w', pady=(10, 4))
+        self.log_path = tk.StringVar(value=f'CSV folder: {LOGS}')
+        ttk.Label(wrap, textvariable=self.log_path, wraplength=980, foreground=self.muted,
+                  font=(self.font, 9)).pack(anchor='w')
+        ttk.Label(wrap, text='Magnetic north, not true north. Calibration requires validation. Forward: board +X. BLE limits: 3276 steps / 3276.7 m.',
+                  foreground=self.muted, font=(self.font, 9), wraplength=980).pack(anchor='w', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
         if auto:
@@ -237,13 +284,13 @@ class Monitor:
         self.receiver.start(target)
 
     def stop(self):
-        self.status.set('正在断开 …')
+        self.status.set('Disconnecting …')
         self.receiver.disconnect()
 
     def toggle_record(self):
         if self.recording.get():
             self.receiver.record.set()
-            self.log_path.set('等待下一条真实数据开始保存 CSV …')
+            self.log_path.set('Recording starts with the next live packet …')
         else:
             self.receiver.record.clear()
 
@@ -272,7 +319,7 @@ class Monitor:
                 if value == 'idle':
                     self.connect.configure(state='normal')
                     self.entry.configure(state='normal')
-                    if self.receiver.stop.is_set(): self.status.set('已断开，可重新连接或关闭窗口')
+                    if self.receiver.stop.is_set(): self.status.set('Disconnected. Reconnect or close the window.')
             elif kind == 'packet':
                 if self.latest and self.latest['session'] != value['session']:
                     self.history.clear()
@@ -283,21 +330,57 @@ class Monitor:
         fresh = self.latest is not None and self.state == 'connected' and now - self.latest['received'] <= 1
         if fresh:
             p = self.latest
-            self.values['steps'].set(f"{p['steps']:g}" + (' ≥上限' if p['steps'] >= 3276 else ''))
-            self.values['heading'].set(f"{p['heading']:.1f}°" if p['heading_valid'] else '无效')
+            self.values['steps'].set(f"{p['steps']:g}" + (' (limit)' if p['steps'] >= 3276 else ''))
+            self.values['heading'].set(f"{p['heading']:.1f}°" if p['heading_valid'] else {-1: 'Unavailable', -2: 'Calibrating', -3: 'Disturbance', -4: 'Recovering'}.get(p['heading'], 'Invalid'))
             self.values['distance'].set(f"{p['distance']:.1f} m")
             recent = [x for x in self.history if now - x['received'] < 5]
             hz = (len(recent)-1)/(recent[-1]['received']-recent[0]['received']) if len(recent)>1 else 0
             self.values['rate'].set(f'{hz:.1f} Hz')
-            acc = str(p['acc']) if p['acc_fresh'] else '无效/过期'
-            mag = str(p['mag']) if p['mag_fresh'] else '无效/过期'
-            self.axes.set(f'Acc XYZ: {acc} mg     Mag XYZ: {mag} mGauss')
+
         else:
             for value in self.values.values(): value.set('—')
-            self.axes.set('尚无实时数据' if not self.latest else '数据过期 · 请检查连接和设备供电')
-        self.stats.set(f'接收 {self.total} 包  |  格式错误 {self.bad}  |  显示队列丢弃 {self.receiver.display_dropped}  |  最近 15 秒曲线，X 红 / Y 绿 / Z 蓝')
+
+        labels = {'idle': 'Disconnected', 'scanning': 'Scanning', 'retry': 'Reconnecting', 'connected': 'Waiting for data'}
+        live_label = 'Live' if fresh else ('Stale data' if self.state == 'connected' and self.latest else labels.get(self.state, self.state))
+        self.connection.set('● ' + live_label)
+        self.connection_label.configure(foreground='#248a3d' if fresh else '#b36b00' if self.state != 'idle' else self.muted)
+        for key, title, unit in [('acc', 'Acceleration', 'mg'), ('mag', 'Magnetic field', 'mGauss')]:
+            valid = fresh and self.latest[key+'_fresh']
+            self.sensor_states[key].set(f'{title} · {unit}  /  ' + ('Live' if valid else 'Invalid or stale' if self.latest else 'Waiting for data'))
+            for axis in range(3):
+                value = f'{self.latest[key][axis]:g}' if valid else '—'
+                self.sensor_values[key, axis].set('XYZ'[axis]+'  '+value)
+        age = f"{now-self.latest['received']:.1f} s" if self.latest else '—'
+        self.stats.set(f'Packets {self.total:,}    ·    Format errors {self.bad}    ·    Display drops {self.receiver.display_dropped}    ·    Data age {age}')
+        self.draw_compass(fresh and self.latest['heading_valid'])
         self.draw(now)
         if not self.closing: self.root.after(100, self.poll)
+
+    def draw_compass(self, valid):
+        c = self.compass
+        c.delete('all')
+        cx, cy, r = 118, 104, 66
+        c.create_oval(cx-r, cy-r, cx+r, cy+r, outline='#e5e5ea', width=2)
+        for angle in range(0, 360, 30):
+            a = math.radians(angle)
+            c.create_line(cx+math.sin(a)*(r-5), cy-math.cos(a)*(r-5),
+                          cx+math.sin(a)*r, cy-math.cos(a)*r, fill='#d2d2d7')
+        for x, y, label in [(cx, 20, 'N'), (cx+88, cy, 'E'), (cx, 186, 'S'), (cx-88, cy, 'W')]:
+            c.create_text(x, y, text=label, fill=self.muted, font=(self.font, 10))
+        if valid:
+            heading = self.latest['heading']
+            a = math.radians(heading)
+            dx, dy = math.sin(a), -math.cos(a)
+            c.create_line(cx-dx*28, cy-dy*28, cx+dx*52, cy+dy*52,
+                          fill='#007aff', width=4, arrow='last', arrowshape=(14, 16, 6))
+            c.create_oval(cx-5, cy-5, cx+5, cy+5, fill='#007aff', outline='white', width=2)
+            direction = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][int((heading+22.5)//45)%8]
+            caption = direction + ' · Board +X'
+        else:
+            c.create_text(cx, cy, text='—', fill='#aeaeb2', font=(self.font, 30))
+            caption = ('Stale data' if self.state != 'connected' or time.monotonic()-self.latest['received'] > 1 else
+                       {-2: 'Establishing reference', -3: 'Magnetic disturbance', -4: 'Confirming recovery'}.get(self.latest['heading'], 'Heading unavailable')) if self.latest else 'Waiting for heading'
+        c.create_text(cx, 215, text=caption, fill=self.ink, font=(self.font, 11))
 
     def draw(self, now):
         c = self.canvas
@@ -305,7 +388,7 @@ class Monitor:
         w, h = c.winfo_width(), c.winfo_height()
         if w < 100 or h < 100: return
         left, right = 65, w-18
-        colors = ['#cc4353', '#16845d', '#306bc0']
+        colors = ['#ff3b30', '#248a3d', '#007aff']
         for index, (key, label, limit) in enumerate([('acc','Acceleration / mg',2000),('mag','Magnetic field / mGauss',1000)]):
             top, bottom = index*h/2+30, (index+1)*h/2-20
             points = [p for p in self.history if now-p['received'] <= 15]
@@ -328,7 +411,10 @@ class Monitor:
                                         bottom-(p[key][axis]+limit)/(2*limit)*(bottom-top)])
                     previous = p['received']
                 if len(segment)>=4: c.create_line(*segment,fill=color,width=2)
-            c.create_text(right,bottom+12,text='现在',anchor='e',fill='#6b7280')
+            if not valid:
+                c.create_text((left+right)/2, (top+bottom)/2, text='Waiting for valid sensor data', fill='#aeaeb2')
+            c.create_text(left,bottom+12,text='−15 s',anchor='w',fill='#6b7280')
+            c.create_text(right,bottom+12,text='Now',anchor='e',fill='#6b7280')
 
 
 async def probe():

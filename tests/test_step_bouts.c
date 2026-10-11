@@ -84,6 +84,38 @@ int main(void) {
     gait(&s, 10U, 600U, 2U); gait(&s, 10U, 400U, 2U);
     assert(s.steps == 40U);
 
+    /* Calibrated model changes FUTURE distance, not historical distance. */
+    init(&s, 0U, 2U);
+    P2_StrideModel model = {.7f,.3f,.2f,.8f,2.5f,true};
+    assert(P2_MotionSetStride(&s,model));
+    gait(&s,10U,1000U,2U);
+    assert(s.steps==10U && fabsf(s.distance_m-5.0f)<.05f);
+    assert(!P2_MotionSetStride(&s,model)); /* No mid-bout model change. */
+    rest(&s,2500U,2U);
+    float before=s.distance_m;
+    cycle(&s,400U,2U); cycle(&s,400U,2U);
+    assert(s.distance_m==before); /* Pending candidates add no distance. */
+    gait(&s,8U,400U,2U);
+    assert(s.steps==20U && fabsf((s.distance_m-before)-8.0f)<.08f);
+    assert(fabsf(s.distance_m-16.0f)>2.0f); /* No count * latest length. */
+    rest(&s,2500U,2U);
+    model.slope_m_per_hz=NAN;
+    assert(!P2_MotionSetStride(&s,model));
+    init(&s,UINT32_MAX-3000U,2U);
+    model=(P2_StrideModel){.7f,.3f,.2f,.8f,2.5f,true};
+    assert(P2_MotionSetStride(&s,model));
+    gait(&s,2U,600U,2U); rest(&s,2500U,2U);
+    assert(s.distance_m==0.0f);
+    gait(&s,10U,1000U,2U);
+    assert(fabsf(s.distance_m-5.0f)<.05f); /* No abandoned-bout distance. */
+
+    /* Outside the calibrated domain use fixed fallback, never extrapolate. */
+    init(&s,0U,2U);
+    model=(P2_StrideModel){.7f,.3f,.2f,1.2f,2.5f,true};
+    assert(P2_MotionSetStride(&s,model));
+    gait(&s,10U,1000U,2U);
+    assert(s.steps==10U && fabsf(s.distance_m-7.0f)<.01f);
+
     /* An ideal slow rotation has constant gravity magnitude and no steps. */
     init(&s, 0U, 2U);
     for (unsigned t = 0; t < 30000U; t += 20U) {

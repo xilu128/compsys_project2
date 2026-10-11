@@ -409,3 +409,69 @@ misleading negative count. Calibration accepts new CSV/P2DATA raw logs and old
 `mag=x,y,z` logs. CSV stale magnetic rows are excluded; calibration still needs
 full 3D rotations, not a stationary/walking log. No calibration constants or
 motion algorithm parameters were changed by the logging work.
+
+
+### Heading guard and English dashboard (heading-guard-2)
+
+The dashboard now uses English labels, separate magnetic-heading/step/distance/rate
+cards, a compass, XYZ values and sensor freshness indicators. The compass describes
+board +X relative to magnetic north, not true north or pedestrian travel direction.
+
+Firmware `heading-guard-3` establishes its field-strength reference from a continuous
+one-second window whose magnitude range stays within 10% of the current magnitude.
+This follows the existing acceleration settling period. Gaps over 200 ms or invalid
+samples restart reference confirmation. Repeated calls at one timestamp do not add
+samples. A strength change over 35% of the reference rejects the heading; recovery
+requires 500 ms of consecutive acceptable observations. The reference never adapts
+to sustained interference. An acceleration reset clears it.
+
+The 20-byte packet layout is unchanged, but negative heading values now distinguish
+-1 unavailable/stale sensor, -2 establishing reference, -3 magnetic disturbance,
+and -4 confirming recovery. They are encoded using the existing x10 wire scale.
+Use the updated English viewer; older clients must treat ALL negative headings as
+invalid, and the ST app may display the sentinel as a negative gyro value. CSV
+heading_valid is false for every negative status. UART retains its generic -1 invalid
+heading for compatibility. Calibrating means reference acquisition, not full 3D calibration.
+
+This is a configurable heuristic, not trained classification or gyro fusion.
+Startup must be away from interference. Direction-only disturbances and polluted
+startup are not detected. The thresholds require hardware validation and provisional
+XY calibration may cause magnitude changes during tilt.
+
+Before claiming improved accuracy: record a clean stationary baseline, test known
+cardinal directions and slow turns, introduce/remove a magnetic disturbance, and
+check recovery. Repeat with the intended mounting. Complete independent 3D calibration
+before assessing tilted heading accuracy. Step detection and fixed 0.70 m stride are
+unchanged. No new hardware accuracy percentage is claimed by software tests.
+
+
+### Per-step distance and personal calibration (stride-ready-1)
+
+Distance is accumulated when steps are confirmed, including startup backfill.
+Unconfirmed bouts are discarded. Each confirmed step retains its historical distance;
+a later cadence change never rescales earlier distance. The first step in a confirmed
+bout uses the first observed interval. An inconsistent candidate sequence starts a
+new pending pair, with its distance recomputed from that pair's interval.
+
+Default behaviour remains 0.70 m per step: no personal distance measurements exist
+in this update. Optional calibrated mode uses `length = intercept + slope * cadence`
+(cadence in steps/second). Outside the calibrated cadence range it falls back to the
+personal fixed length. Model parameters are checked for finite, plausible values.
+`P2_MotionSetStride` rejects mid-bout updates; config macros are applied at startup.
+Invalid compile-time models fall back to the safe uncalibrated 0.70 m default.
+
+Create a CSV with `distance_m,steps,duration_s,split`. Use measured ground-truth
+route length, manually counted steps, and walking-only duration. Keep the same person
+and pocket placement. Collect at least six training and three separate validation
+walks covering slow, normal and fast speeds; never duplicate a walk across splits.
+Run `python tools/calibrate_stride.py measurements.csv`. It prints candidate config
+macros and validation errors versus 0.70 m and a personal fixed step length. It does
+not edit firmware. Enable adaptive mode only after improvement is reproduced on
+additional independent walks. If even the personal fixed model loses to 0.70 m,
+retain the baseline and collect better data rather than applying its suggested value.
+
+The calibration tool uses trial-average cadence and manual counts. Its errors do
+not include firmware miscounts or within-walk speed changes. End-to-end firmware
+validation is still required. The viewer labels distance as a firmware estimate;
+the current packet does not identify the active model. Existing packet range limits
+still apply. This model is empirical, not the Weinberg or Ho paper implementation.

@@ -229,9 +229,14 @@ telemetry:
          * Log full internal distance, not the BLE packet's saturated field. */
         uint32_t heading10 = (uint32_t)lroundf(Motion.heading_deg * 10.0f) % 3600U;
         double distance = Motion.distance_m;
-        uint32_t metres = (uint32_t)distance;
-        uint32_t tenths = (uint32_t)((distance - metres) * 10.0 + 0.5);
-        if (tenths == 10U) { ++metres; tenths = 0U; }
+        /* Adaptive step lengths may exceed uint32 metres at count saturation. */
+        uint32_t metres = distance >= UINT32_MAX ? UINT32_MAX : (uint32_t)distance;
+        uint32_t tenths = distance >= UINT32_MAX ? 0U :
+            (uint32_t)((distance - metres) * 10.0 + 0.5);
+        if (tenths == 10U) {
+            if (metres < UINT32_MAX) ++metres;
+            tenths = 0U;
+        }
         XPRINTF("P2DATA,ms=%lu,acc_x=%ld,acc_y=%ld,acc_z=%ld,mag_x=%ld,mag_y=%ld,mag_z=%ld,steps=%lu,heading=%ld.%lu,heading_valid=%u,distance=%lu.%lu,sensor_errors=%lu,ble_connected=%d,ble_subscribed=%u,ble_errors=%lu,sample_count=%lu,mag_sample_count=%lu,acc_fresh=%u,mag_fresh=%u,log_dropped=%lu\r\n",
             (unsigned long)now,
             (long)ACC_Value.x, (long)ACC_Value.y, (long)ACC_Value.z,
@@ -516,7 +521,10 @@ static void SendMotionData(void)
       mag.x = mag.y = mag.z = INT16_MIN;
   /* Avoid aliasing unrelated structs and signed 16-bit BLE wraparound. */
   summary.x = COMP_Value.Steps > 3276U ? 3276 : (int32_t)COMP_Value.Steps;
-  summary.y = Motion.heading_valid ? (int32_t)COMP_Value.Heading : -1;
+  /* Preserve -1 for stale channels; -2/-3/-4 explain fresh invalid heading. */
+  summary.y = Motion.heading_valid ? (int32_t)COMP_Value.Heading :
+      (HaveAcc && HaveMag && now-LastAccTick <= P2_ACC_FRESH_MS &&
+       now-LastMagTick <= P2_MAG_FRESH_MS ? -(int32_t)Motion.heading_status : -1);
   summary.z = (int32_t)COMP_Value.Distance;
   if (AccGyroMag_Update(&acc, &summary, &mag) != BLE_STATUS_SUCCESS &&
       BleErrors != UINT32_MAX) ++BleErrors;
