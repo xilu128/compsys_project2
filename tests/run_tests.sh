@@ -20,3 +20,6 @@ ${PYTHON:-python3} tests/test_stride_calibration.py
 # Exercise the optional fully calibrated guard as well as shipping defaults.
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -DP2_MAG_CALIBRATED=1 -I"$app/Inc" tests/test_heading.c "$app/Src/p2_motion.c" -lm -o "$out/test_heading_calibrated"
 "$out/test_heading_calibrated"
+
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_gait.c "$app/Src/p2_motion.c" -lm -o "$out/test_gait"
+"$out/test_gait"

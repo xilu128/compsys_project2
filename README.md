@@ -204,11 +204,12 @@ jitter, not sustained external-field changes, and introduces response lag.
    python tools/calibrate_mag.py ../logs/magnetometer_calibration_YYYYMMDD_HHMMSS.csv
    ```
 
-3. The tool prints `P2_MAG_BIAS_*` and `P2_MAG_SCALE_*` definitions. Copy them
-   into `Inc/p2_config.h`, set `P2_MAG_CALIBRATED` to `1`, rebuild and flash.
-   Parameters persist in firmware, not in runtime flash writes.
+3. The tool prints candidate `P2_MAG_BIAS_*` and `P2_MAG_SCALE_*` definitions.
+   Copy them into `Inc/p2_config.h`, rebuild and flash for validation. Keep
+   `P2_MAG_CALIBRATED=0` until independent direction/tilt tests pass; then enable
+   the calibrated strength guard. Parameters persist in firmware, not runtime flash writes.
 4. Validate at independent known directions and ±30° tilt. Repeat collection
-   if coverage is inadequate. The min/max diagonal fit cannot correct arbitrary
+   if coverage is inadequate. The least-squares diagonal fit cannot correct arbitrary
    cross-axis soft-iron distortion. Recalibrate after changing mounting hardware.
 5. Test a measured 100-step walk at slow/normal/fast speed and fixed mounting.
    Tune high/low thresholds only against recorded trials, then validate with
@@ -488,3 +489,95 @@ horizontal projection, forward-axis and stale-data checks remain active.
 A displayed heading is still uncalibrated magnetic heading, not verified true north.
 Do not set the calibration flag merely to enable the guard. This fixes an identified
 availability risk; the user's particular missing-heading cause needs hardware retest.
+
+
+### Carrying-amplitude robustness (adaptive-gait-1)
+
+The step detector still uses acceleration magnitude and does not classify hand-held,
+arm-swing or pocket modes. A decaying amplitude envelope now adjusts the positive
+peak threshold between 40 and 100 mg and trough threshold between -20 and -40 mg.
+A candidate also requires at least 90 mg peak-to-trough prominence. These bounds
+prevent the detector from chasing tiny stationary noise. Strong-signal startup still
+needs three consistent candidates. Any weak startup candidate raises confirmation
+to five and tightens adjacent interval agreement to a factor of 1.25. Confirmed
+candidates and their distances are backfilled together. Fewer than five weak steps
+may be deliberately missed. Abrupt rhythm changes during walking trigger fresh
+confirmation without counting the already-published previous step again.
+
+Synthetic tests cover 110/180/500 mg amplitudes, 50/75/120 steps per minute, continuously
+rotating sensor axes, low noise, and amplitude/speed transitions. The existing
+user-confirmed flip-only 10 Hz recording still replays to zero steps. Neither test
+establishes real hand/pocket accuracy: the replay is downsampled, and rhythmic hand
+shaking can resemble gait. Arm-swing signals may have a different period from foot
+steps; do not apply an unvalidated x2 correction. No running, stair or pathological
+gait accuracy claim is made.
+
+Hardware acceptance: for each of steady hand-held, natural arm swing and trouser
+pocket, record three 100-step walks at slow/normal/fast speeds. Keep separate tests
+for stationary handling, transfers between hand and pocket, short 1–5 step bouts,
+and stop/restart. Record manual counts and compare deltas, not lifetime counts.
+Validate distance separately for each placement/person before enabling stride fitting.
+
+### Magnetic calibration fitting (2026-10-12)
+
+`tools/calibrate_mag.py` now fits an axis-aligned ellipsoid to the complete
+rotation dataset instead of estimating each bias from two extrema. Normalized
+coordinates and spatial-cell weighting reduce numerical imbalance and the effect
+of long stationary holds. The tool requires all eight octants, both ends of each
+axis, and at least 60 occupied spatial cells; it rejects degenerate fits, large
+residuals and implausible radii. These are engineering acceptance checks, not
+proof of absolute heading accuracy. Cross-axis soft-iron distortion needs a more
+general model than the current firmware's three scales.
+
+Use fresh UART or BLE CSV from the assembled board, slowly covering all six faces
+and intermediate orientations. A half-turn on a tabletop is insufficient for
+3D calibration. Validate on a separate recording and known physical directions;
+never select an offset merely to force two measured endpoints to match.
+
+The October 12 half-turn recording changed from about 175.5 to 262.3 degrees
+while the user reported a physical 180-degree turn. No invalid headings or extra
+steps occurred in the analyzed 173-second snapshot. The new fitter correctly
+rejects this recording for insufficient 3D coverage. Existing firmware calibration
+constants are unchanged until suitable measurements are available.
+
+### October 12 measured calibration candidate (`gait-magfit-1`)
+
+The current config uses a diagonal 3D fit from 5342 BLE snapshots collected
+14:46:10–14:50:37 NZDT on October 12. Bias in mGauss: (-298.170662,
+74.582182, 258.322494); scale: (1.000105, 1.046709, 0.957186). The
+corrected magnitude coefficient of variation is 3.16%. All eight magnetic
+octants and both ends of each axis passed the fitter's coverage checks.
+
+The preceding half-turn recording was excluded from fitting. Replaying it
+through the C heading implementation with these parameters gives stable
+endpoints of about 129.4 and 311.0 degrees: a 181.6-degree positive change,
+compared with the recorded 86.8-degree change under the earlier calibration.
+This supports improved relative rotation for this trial, not verified north.
+The user labelled the endpoints south/north, so an approximately 50-degree
+absolute discrepancy remains. No heading offset was introduced. Check board
++X alignment and independently referenced directions before enabling
+`P2_MAG_CALIBRATED`. The fit cannot correct arbitrary cross-axis distortion.
+
+These are offline results from 20 Hz BLE snapshots. Reconstructed startup
+invalidates the first second of replay; it is not a live dropout. Rebuild and
+flash, then validate level cardinal headings and tilted poses independently.
+The live viewer and connected board keep using their existing firmware until
+reflashed. The earlier XY constants remain documented above as history.
+
+### Approximate user-reference alignment (`gait-aligned-1`)
+
+At the user's request, treat the earlier stationary holds as approximately level
+and facing south then north. With the new diagonal calibration, the unaligned C
+replay means were 129.368727 and 310.956849 degrees. Equal-weight circular averaging
+of the two reference corrections gives `P2_HEADING_OFFSET_DEG=49.837212`.
+This is a constant zero adjustment: it preserves the measured rotation and does
+not force a 181.6-degree turn to equal 180. The magnetometer bias/scale stay based
+on the measured 3D fit; raw acceleration and magnetic readings are unchanged.
+
+The reference recording is now alignment training data, not an independent
+absolute-accuracy test. Approximate handling and the user's south/north reference
+limit its accuracy. This offset is not a measured declination and does not prove
+true north. The board +X axis remains the heading axis. Near-vertical +X remains
+undefined and is rejected; no artificial direction is substituted. Independent
+level east/west and tilted tests are still required. The viewer therefore labels
+the value Board heading / Firmware reference instead of promising magnetic north.

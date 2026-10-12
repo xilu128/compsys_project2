@@ -16,6 +16,7 @@ typedef struct {
     uint32_t pending_steps, candidate_interval_ms;
     P2_StrideModel stride;
     float pending_distance_m, distance_compensation;
+    float step_envelope, step_trough;
     float distance_m, heading_deg, baseline, filtered, previous;
     uint32_t heading_last_ms;
     float heading_sin, heading_cos;
@@ -25,7 +26,7 @@ typedef struct {
     P2_HeadingStatus heading_status;
     P2_Vector gravity, mag_bias, mag_scale;
     bool initialized, armed, heading_valid;
-    bool have_peak, walking;
+    bool have_peak, walking, weak_bout;
 } P2_Motion;
 void P2_MotionInit(P2_Motion *state);
 /* Changes apply to future bouts only; rejects updates during pending/walking. */

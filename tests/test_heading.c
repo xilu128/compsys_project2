@@ -8,12 +8,15 @@
 
 static const P2_Vector level = {0,0,1000};
 static float error(float a, float b) {
-    float e = fmodf(a-b+540.0f,360.0f)-180.0f;
+    /* Compare analytic geometry after the configured reference rotation. */
+    assert(a >= 0.0f && a < 360.0f);
+    float e = fmodf(a-b-P2_HEADING_OFFSET_DEG+540.0f,360.0f)-180.0f;
     return fabsf(e);
 }
 static void settle(P2_Motion *s) {
     P2_MotionInit(s);
     s->mag_bias=(P2_Vector){0,0,0};
+    s->mag_scale=(P2_Vector){1,1,1};
     for (uint32_t t=0;t<=1200;t+=20) P2_MotionAcceleration(s,level,t);
     s->magnetic_reference=sqrtf(300*300+250*250); /* Geometry fixture. */
 }
@@ -48,6 +51,13 @@ int main(void) {
         assert(ready_heading(&s,observed(1)));
         assert(error(s.heading_deg,0)<1.01f);
     }
+    /* Reference offset moves north; filtering must wrap at displayed zero too. */
+    settle(&s); assert(ready_heading(&s,observed(359-P2_HEADING_OFFSET_DEG)));
+    for(uint32_t t=1220;t<2220;t+=20) {
+        P2_MotionAcceleration(&s,level,t);
+        assert(ready_heading(&s,observed(1-P2_HEADING_OFFSET_DEG)));
+        assert(s.heading_deg < 1.01f || s.heading_deg > 358.99f);
+    }
     /* Unit-circle filtering rejects alternating jitter without freezing yaw. */
     settle(&s); assert(ready_heading(&s,observed(90)));
     for(uint32_t t=1220;t<3220;t+=20) {
@@ -73,10 +83,12 @@ int main(void) {
     for(uint32_t t=8020;t<=9020;t+=20) P2_MotionAcceleration(&s,level,t);
     assert(ready_heading(&s,observed(45)));
     assert(error(s.heading_deg,45)<.01f);
-    /* Measured XY bias is subtracted before projection/filtering. */
+    /* Shipping bias and scale are applied before projection/filtering. */
     P2_MotionInit(&s);
     for(uint32_t t=0;t<=1200;t+=20) P2_MotionAcceleration(&s,level,t);
-    P2_Vector with_bias={P2_MAG_BIAS_X, -300+P2_MAG_BIAS_Y, 250};
+    P2_Vector with_bias={P2_MAG_BIAS_X,
+        -300/P2_MAG_SCALE_Y+P2_MAG_BIAS_Y,
+        250/P2_MAG_SCALE_Z+P2_MAG_BIAS_Z};
     assert(ready_heading(&s,with_bias));
     assert(error(s.heading_deg,90)<.01f);
 #if P2_MAG_CALIBRATED
@@ -135,6 +147,6 @@ int main(void) {
     assert(ready_heading(&s,observed(359)));
     s.last_ms=9U; assert(ready_heading(&s,observed(1)));
     assert(error(s.heading_deg,0)<1.01f);
-    puts("PASS: board yaw convention, circular wrap/filter, motion response, invalidity, gaps, XY bias, tick wrap");
+    puts("PASS: board yaw convention, circular wrap/filter, motion response, invalidity, gaps, calibration, tick wrap");
     return 0;
 }

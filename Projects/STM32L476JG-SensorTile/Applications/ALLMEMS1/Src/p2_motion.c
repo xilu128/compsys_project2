@@ -15,8 +15,9 @@ static void reset_bout(P2_Motion *s) {
     s->pending_distance_m = 0.0f;
     s->candidate_interval_ms = 0U;
     s->have_peak = false;
-    s->walking = false;
+    s->walking = s->weak_bout = false;
     s->armed = false;
+    s->step_trough = 0.0f;
 }
 
 bool P2_MotionSetStride(P2_Motion *s, P2_StrideModel m) {
@@ -59,7 +60,17 @@ static void add_steps(P2_Motion *s, uint32_t count, float distance) {
 
 static void accept_candidate(P2_Motion *s, uint32_t now) {
     uint32_t interval = now - s->peak_ms;
+    bool weak = s->previous < P2_STEP_HIGH_MG;
+    float cadence_ratio = (weak || s->weak_bout) ? P2_STEP_WEAK_CADENCE_RATIO : P2_STEP_CADENCE_RATIO;
+    /* A sudden incompatible rhythm may be handling/placement transition.
+     * Reconfirm it instead of accepting every later peak as walking. */
+    if (s->walking && s->candidate_interval_ms != 0U &&
+        ((float)interval > s->candidate_interval_ms * cadence_ratio ||
+         (float)s->candidate_interval_ms > interval * cadence_ratio)) {
+        reset_bout(s); /* Do not backfill the already published previous step. */
+    }
     if (!s->have_peak) {
+        s->weak_bout = weak;
         s->pending_steps = 1U;
         s->pending_distance_m = 0.0f; /* First interval not known yet. */
     } else if (s->walking) {
@@ -69,15 +80,16 @@ static void accept_candidate(P2_Motion *s, uint32_t now) {
         /* Two adjacent intervals must agree before the first three candidates
          * become steps. Irregular handling starts a fresh confirmation window. */
         bool consistent = s->candidate_interval_ms == 0U ||
-            ((float)interval <= s->candidate_interval_ms * P2_STEP_CADENCE_RATIO &&
-             (float)s->candidate_interval_ms <= interval * P2_STEP_CADENCE_RATIO);
+            ((float)interval <= s->candidate_interval_ms * cadence_ratio &&
+             (float)s->candidate_interval_ms <= interval * cadence_ratio);
         float length = step_length(s, interval);
         /* Infer the first step from the first observed interval. After an
          * inconsistent cadence, retain only the latest pair and its distance. */
         if (!consistent || s->pending_steps == 1U) s->pending_distance_m = 2.0f*length;
         else s->pending_distance_m += length;
         s->pending_steps = consistent ? s->pending_steps + 1U : 2U;
-        if (s->pending_steps >= P2_STEP_CONFIRM_COUNT) {
+        s->weak_bout = consistent ? (s->weak_bout || weak) : weak;
+        if (s->pending_steps >= (s->weak_bout ? P2_STEP_WEAK_CONFIRM_COUNT : P2_STEP_CONFIRM_COUNT)) {
             add_steps(s, s->pending_steps, s->pending_distance_m); /* Backfill, do not lose startup steps. */
             s->pending_steps = 0U;
             s->pending_distance_m = 0.0f;
@@ -118,7 +130,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
         s->magnetic_seen = s->magnetic_blocked = s->recovery_active = false;
         s->gravity = a;
         s->baseline = magnitude;
-        s->filtered = s->previous = 0.0f;
+        s->filtered = s->previous = s->step_envelope = 0.0f;
         reset_bout(s);
         s->start_ms = now;
         s->last_ms = now;
@@ -140,15 +152,24 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     s->previous = s->filtered;
     s->filtered += fast * (magnitude - s->baseline - s->filtered);
     if (now - s->start_ms < P2_SETTLE_MS) return;
+    float envelope_decay = dt/(P2_STEP_ENVELOPE_S+dt);
+    s->step_envelope = fmaxf(fabsf(s->filtered),
+                            s->step_envelope*(1.0f-envelope_decay));
+    float high = fmaxf(P2_STEP_PEAK_FLOOR_MG,
+                      fminf(P2_STEP_HIGH_MG,0.45f*s->step_envelope));
+    float low = -fmaxf(P2_STEP_TROUGH_FLOOR_MG,
+                      fminf(-P2_STEP_LOW_MG,0.20f*s->step_envelope));
     /* Require a trough followed by a positive falling peak, plus refractory time.
      * Magnitude makes counting independent of the fixed mounting orientation. */
-    if (s->filtered < P2_STEP_LOW_MG) {
+    if (s->filtered < low) {
+        if (!s->armed || s->filtered < s->step_trough) s->step_trough = s->filtered;
         s->armed = true;
         s->trough_ms = now;
     }
     /* Do not pair an isolated trough with an unrelated motion much later. */
     if (s->armed && now - s->trough_ms > P2_TROUGH_TIMEOUT_MS) s->armed = false;
-    if (s->armed && s->previous > P2_STEP_HIGH_MG && s->filtered < s->previous &&
+    if (s->armed && s->previous > high && s->filtered < s->previous &&
+        s->previous-s->step_trough >= P2_STEP_PROMINENCE_MG &&
         (!s->have_peak || now - s->peak_ms >= P2_STEP_MIN_MS)) {
         accept_candidate(s, now);
     }

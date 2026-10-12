@@ -226,7 +226,7 @@ class Monitor:
         cards.pack(side='left', fill='both', expand=True)
         self.values = {}
         descriptions = [('steps', 'Step count', 'Steps since board startup'),
-                        ('heading', 'Magnetic heading', 'Board direction · Magnetic north'),
+                        ('heading', 'Board heading', 'Board +X · Firmware reference'),
                         ('distance', 'Estimated distance', 'Firmware estimate · Model not reported'),
                         ('rate', 'BLE notification rate', 'Receive rate · Sensor rate differs')]
         for i, (key, label, note) in enumerate(descriptions):
@@ -265,7 +265,7 @@ class Monitor:
         self.log_path = tk.StringVar(value=f'CSV folder: {LOGS}')
         ttk.Label(wrap, textvariable=self.log_path, wraplength=980, foreground=self.muted,
                   font=(self.font, 9)).pack(anchor='w')
-        ttk.Label(wrap, text='Magnetic north, not true north. Calibration requires validation. Forward: board +X. BLE limits: 3276 steps / 3276.7 m.',
+        ttk.Label(wrap, text='Heading reference depends on firmware calibration/alignment. Validate against known directions. Forward: board +X. BLE limits: 3276 steps / 3276.7 m.',
                   foreground=self.muted, font=(self.font, 9), wraplength=980).pack(anchor='w', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
