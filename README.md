@@ -475,3 +475,16 @@ not include firmware miscounts or within-walk speed changes. End-to-end firmware
 validation is still required. The viewer labels distance as a firmware estimate;
 the current packet does not identify the active model. Existing packet range limits
 still apply. This model is empirical, not the Weinberg or Ho paper implementation.
+
+
+### Provisional-calibration heading availability (heading-availability-1)
+
+The reference-strength rejection/startup/recovery windows now run ONLY when
+P2_MAG_CALIBRATED is 1. The shipping configuration is 0 because only provisional
+XY correction is available. Rotating a partially calibrated magnetometer can change
+its corrected strength enough to trigger the guard, so that guard must not block
+heading in this configuration. Finite-value, absolute magnetic/gravity bounds,
+horizontal projection, forward-axis and stale-data checks remain active.
+A displayed heading is still uncalibrated magnetic heading, not verified true north.
+Do not set the calibration flag merely to enable the guard. This fixes an identified
+availability risk; the user's particular missing-heading cause needs hardware retest.

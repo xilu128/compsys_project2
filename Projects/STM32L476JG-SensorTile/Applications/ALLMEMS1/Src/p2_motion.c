@@ -178,48 +178,53 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
     P2_Vector north = {m.x-dot*up.x, m.y-dot*up.y, m.z-dot*up.z};
     float horizontal = norm(north);
     if (horizontal < P2_HORIZONTAL_MIN_MGAUSS || fabsf(up.x) > P2_FORWARD_VERTICAL_LIMIT) return false;
-    uint32_t now = s->last_ms;
-    bool gap = !s->magnetic_seen || now - s->magnetic_last_ms > P2_MAG_FRESH_MS;
-    bool duplicate = s->magnetic_seen && now == s->magnetic_last_ms;
-    s->magnetic_last_ms = now;
-    s->magnetic_seen = true;
-    s->magnetic_count = gap ? 0U : prior_count;
-    s->recovery_active = !gap && prior_recovery;
-    if (s->magnetic_reference == 0.0f) {
-        s->heading_status = P2_HEADING_CALIBRATING;
-        if (s->magnetic_count == 0U ||
-            fmaxf(s->magnetic_max, mn) - fminf(s->magnetic_min, mn) >
-                P2_MAG_STABILITY_RATIO * mn) {
-            s->magnetic_start_ms = now;
-            s->magnetic_sum = s->magnetic_min = s->magnetic_max = mn;
-            s->magnetic_count = 1U;
+    /* Provisional XY correction cannot establish rotation-invariant strength.
+     * Only use reference/recovery rejection with validated full calibration.
+     * Raw sanity, gravity and projection checks above always remain active. */
+    if (P2_MAG_CALIBRATED) {
+        uint32_t now = s->last_ms;
+        bool gap = !s->magnetic_seen || now - s->magnetic_last_ms > P2_MAG_FRESH_MS;
+        bool duplicate = s->magnetic_seen && now == s->magnetic_last_ms;
+        s->magnetic_last_ms = now;
+        s->magnetic_seen = true;
+        s->magnetic_count = gap ? 0U : prior_count;
+        s->recovery_active = !gap && prior_recovery;
+        if (s->magnetic_reference == 0.0f) {
+            s->heading_status = P2_HEADING_CALIBRATING;
+            if (s->magnetic_count == 0U ||
+                fmaxf(s->magnetic_max, mn) - fminf(s->magnetic_min, mn) >
+                    P2_MAG_STABILITY_RATIO * mn) {
+                s->magnetic_start_ms = now;
+                s->magnetic_sum = s->magnetic_min = s->magnetic_max = mn;
+                s->magnetic_count = 1U;
+                return false;
+            }
+            if (duplicate) return false;
+            s->magnetic_sum += mn;
+            s->magnetic_count++;
+            s->magnetic_min = fminf(s->magnetic_min, mn);
+            s->magnetic_max = fmaxf(s->magnetic_max, mn);
+            if (now - s->magnetic_start_ms < P2_MAG_REFERENCE_MS) return false;
+            s->magnetic_reference = s->magnetic_sum / s->magnetic_count;
+        }
+        /* Never learn a sustained disturbance as the new normal. Strength alone
+         * cannot detect direction-only interference or contaminated startup. */
+        if (fabsf(mn - s->magnetic_reference) >
+                P2_MAG_RELATIVE_CHANGE_MAX * s->magnetic_reference) {
+            s->magnetic_blocked = true;
+            s->recovery_active = false;
+            s->heading_status = P2_HEADING_DISTURBED;
             return false;
         }
-        if (duplicate) return false;
-        s->magnetic_sum += mn;
-        s->magnetic_count++;
-        s->magnetic_min = fminf(s->magnetic_min, mn);
-        s->magnetic_max = fmaxf(s->magnetic_max, mn);
-        if (now - s->magnetic_start_ms < P2_MAG_REFERENCE_MS) return false;
-        s->magnetic_reference = s->magnetic_sum / s->magnetic_count;
-    }
-    /* Never learn a sustained disturbance as the new normal. Strength alone
-     * cannot detect direction-only interference or contaminated startup. */
-    if (fabsf(mn - s->magnetic_reference) >
-            P2_MAG_RELATIVE_CHANGE_MAX * s->magnetic_reference) {
-        s->magnetic_blocked = true;
-        s->recovery_active = false;
-        s->heading_status = P2_HEADING_DISTURBED;
-        return false;
-    }
-    if (s->magnetic_blocked) {
-        s->heading_status = P2_HEADING_RECOVERING;
-        if (!s->recovery_active) {
-            s->recovery_start_ms = now;
-            s->recovery_active = true;
+        if (s->magnetic_blocked) {
+            s->heading_status = P2_HEADING_RECOVERING;
+            if (!s->recovery_active) {
+                s->recovery_start_ms = now;
+                s->recovery_active = true;
+            }
+            if (now - s->recovery_start_ms < P2_MAG_RECOVERY_MS) return false;
+            s->magnetic_blocked = s->recovery_active = false;
         }
-        if (now - s->recovery_start_ms < P2_MAG_RECOVERY_MS) return false;
-        s->magnetic_blocked = s->recovery_active = false;
     }
     /* Signed horizontal component in the register-axis basis. The explicit
      * board yaw convention is verified separately from this projection. */

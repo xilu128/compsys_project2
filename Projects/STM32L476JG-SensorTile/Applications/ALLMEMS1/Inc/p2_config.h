@@ -1,6 +1,6 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "stride-ready-1"
+#define P2_FIRMWARE_VERSION "heading-availability-1"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
@@ -58,7 +58,9 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_MAG_FRESH_MS 200U
 #define P2_SENSOR_RETRY_MS 1000U
 #define P2_SENSOR_STALL_MS 1000U
+#ifndef P2_MAG_CALIBRATED
 #define P2_MAG_CALIBRATED 0 /* Full 3D calibration is still outstanding. */
+#endif
 #define P2_MAG_CALIBRATION_LABEL "XY_PROVISIONAL"
 /* Raw magnetometer-register axes, BEFORE mapping to accelerometer body axes.
  * XY circle fitted ONLY to trial 2 (20261005_130753_309873, first 33 s).

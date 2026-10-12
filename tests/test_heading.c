@@ -79,6 +79,7 @@ int main(void) {
     P2_Vector with_bias={P2_MAG_BIAS_X, -300+P2_MAG_BIAS_Y, 250};
     assert(ready_heading(&s,with_bias));
     assert(error(s.heading_deg,90)<.01f);
+#if P2_MAG_CALIBRATED
     /* Plausible absolute strength may still be a local disturbance.
      * Sustained interference must not become the new reference. */
     settle(&s); assert(ready_heading(&s,observed(0)));
@@ -116,6 +117,19 @@ int main(void) {
     P2_MotionAcceleration(&s,level,2720);
     assert(P2_MotionHeading(&s,observed(90)));
     assert(error(s.heading_deg,90)<.01f);
+#else
+    /* Uncalibrated startup must not wait for an unreliable strength reference.
+     * Field variation inside the sanity limits must not latch the display off. */
+    settle(&s); s.magnetic_reference=0.0f;
+    assert(P2_MotionHeading(&s,observed(0)));
+    for (uint32_t t=1220;t<3220;t+=20) {
+        P2_MotionAcceleration(&s,level,t);
+        assert(P2_MotionHeading(&s,(P2_Vector){0,-600,500}));
+    }
+    assert(!P2_MotionHeading(&s,(P2_Vector){9000,0,250}));
+    assert(!P2_MotionHeading(&s,(P2_Vector){0,0,250}));
+    assert(P2_MotionHeading(&s,observed(90)));
+#endif
     /* 32-bit tick rollover must retain the correct small filter interval. */
     settle(&s); s.start_ms=UINT32_MAX-3000U; s.last_ms=UINT32_MAX-10U;
     assert(ready_heading(&s,observed(359)));
