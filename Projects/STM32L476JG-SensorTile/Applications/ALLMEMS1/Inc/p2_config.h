@@ -1,6 +1,6 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "gait-aligned-1"
+#define P2_FIRMWARE_VERSION "gait-continuity-1"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];

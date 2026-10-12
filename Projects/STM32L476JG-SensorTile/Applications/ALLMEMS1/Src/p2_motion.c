@@ -62,13 +62,9 @@ static void accept_candidate(P2_Motion *s, uint32_t now) {
     uint32_t interval = now - s->peak_ms;
     bool weak = s->previous < P2_STEP_HIGH_MG;
     float cadence_ratio = (weak || s->weak_bout) ? P2_STEP_WEAK_CADENCE_RATIO : P2_STEP_CADENCE_RATIO;
-    /* A sudden incompatible rhythm may be handling/placement transition.
-     * Reconfirm it instead of accepting every later peak as walking. */
-    if (s->walking && s->candidate_interval_ms != 0U &&
-        ((float)interval > s->candidate_interval_ms * cadence_ratio ||
-         (float)s->candidate_interval_ms > interval * cadence_ratio)) {
-        reset_bout(s); /* Do not backfill the already published previous step. */
-    }
+    /* Cadence consistency confirms startup only. During established walking,
+     * hand motion can produce unequal intervals without ending the bout.
+     * Stop/gap handling and amplitude/refractory checks remain in Acceleration. */
     if (!s->have_peak) {
         s->weak_bout = weak;
         s->pending_steps = 1U;

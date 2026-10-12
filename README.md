@@ -581,3 +581,21 @@ true north. The board +X axis remains the heading axis. Near-vertical +X remains
 undefined and is rejected; no artificial direction is substituted. Independent
 level east/west and tilted tests are still required. The viewer therefore labels
 the value Board heading / Firmware reference instead of promising magnetic north.
+
+### Hand-held walking continuity (`gait-continuity-1`)
+
+The October 12 manual 50-step hand-held trial reported 36 steps on the board.
+Its 20 Hz BLE snapshots replayed as 21 steps with `gait-aligned-1`. Requiring
+adjacent intervals to remain similar after walking was already confirmed caused
+repeated bout resets and discarded candidates. Cadence consistency now applies
+to startup only. Established walking still requires each trough/peak, prominence
+and refractory check, and pauses longer than 1500 ms or invalid/gapped sensor
+input still reset confirmation. No peaks or missing steps are invented.
+
+The same snapshot replay produces 51 with the continuity fix. This is development
+evidence on the motivating recording, not an independent test or a prediction
+of the full-rate hardware count. More permissive continuity may admit handling
+that begins immediately after walking; static/flip regressions cannot rule out
+every such case. Re-test hand-held walking and stop-then-handle behavior on-device.
+A synthetic changing-cadence regression failed at 10/50 before this fix and
+checks continuity plus pause/restart protection after it.

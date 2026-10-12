@@ -19,3 +19,11 @@ assert result["rows"] == 530
 assert result["snapshot_hz"] == 10.0
 assert result["replayed_steps"] == 0, result
 print("PASS: user flip recording, 10 Hz snapshot replay: 0 steps (hardware retest still required)")
+
+# Motivating hand-held recording, manual total 50. This is a development
+# regression at 20 Hz, not a held-out accuracy test or the original 50 Hz input.
+result = replay(root / 'tests/data/handheld50_20hz.csv', app / 'Src/p2_motion.c', app / 'Inc')
+assert result['snapshot_hz'] == 20.0, result
+assert 48 <= result['replayed_steps'] <= 53, result
+print('PASS: hand-held development replay:', result['replayed_steps'],
+      '(full-rate hardware count not established)')
