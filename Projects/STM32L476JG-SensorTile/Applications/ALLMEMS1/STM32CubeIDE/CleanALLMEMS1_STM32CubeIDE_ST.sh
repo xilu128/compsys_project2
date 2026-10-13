@@ -1,4 +1,6 @@
 #!/bin/bash
+echo "Disabled: legacy bootloader layout. Flash the rebuilt ELF; BIN base is 0x08000000. See README.md." >&2
+exit 1
 
 ######## Modify this Section:
 # 1) Set the Installation path for STM32CubeProgrammer

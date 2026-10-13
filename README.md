@@ -1,3 +1,7 @@
+> Flash layout update: current builds run standalone at **0x08000000**.
+> Follow **Flash layout and first hardware run** below. Historical 0x08004000
+> programming results elsewhere in this document apply only to earlier builds.
+
 # CS704 Project 2 — Group 02 — SensorTile motion tracking
 
 ## Current demo: gyro-aided horizontal heading (`heading-demo-7`)
@@ -469,17 +473,23 @@ jitter, not sustained external-field changes, and introduces response lag.
 
 ## Flash layout and first hardware run
 
-The course starter's layout is retained: application/vector table at
-**0x08004000**, with a compatible bootloader expected at **0x08000000**.
-The image is not standalone at address zero. On this board the bootloader was
-missing. A full 1 MB backup was taken before restoring the **supplied**
-`Utilities/BootLoader/STM32L476RG/BootLoaderL4.bin`, whose supplied readme also
-covers SensorTile. This is not a new/custom bootloader. Application Debug ELF
-was then programmed and verified; reset now boots it without a manual jump.
-Do not repeat bootloader programming during normal development. Do not mass
-erase or load application `.bin` at `0x08000000`. ELF carries its own addresses.
-In CubeProgrammer: connect SWD, select the fresh ELF, enable verify, download,
-then reset/run. For BIN explicitly use **0x08004000**. Preserve option bytes.
+The October 12 course flash-location fix is applied: the application and vector
+table both start at **0x08000000**, with `VECT_TAB_OFFSET=0x00`. The linker
+keeps the instructor's **496K** Flash limit. No separate bootloader is required
+for this layout. Earlier hardware notes in this README refer to the old
+0x08004000 application layout and do not describe the current build.
+
+Clean-build Debug or Release after this change. In CubeProgrammer, select the
+fresh **ELF** (it carries its addresses), download with verification, then reset.
+For a freshly rebuilt **BIN**, explicitly use **0x08000000**. Do not relocate an
+old 0x08004000-linked BIN: it must be rebuilt. Programming this standalone image
+replaces the former bootloader region; do not install BootLoaderL4.bin afterward.
+Preserve option bytes. Check startup after removing the debugger and power cycling.
+
+The two legacy `CleanALLMEMS1_STM32CubeIDE_ST` scripts are disabled with an early
+exit because they mass-erase, install a bootloader and program the old offset.
+Use the freshly built ELF and CubeProgrammer instead. No hardware is flashed
+by the build helpers.
 
 Connect SensorTile and STLINK-V3 following the actual board's lab wiring.
 The old `COMSYS704-2022 Debug.launch` names a different project; use

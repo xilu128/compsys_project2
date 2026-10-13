@@ -1,4 +1,6 @@
 @echo off
+echo Disabled: legacy bootloader layout. Flash the rebuilt ELF; BIN base is 0x08000000. See README.md.
+exit /b 1
 set STLINK_PATH="C:\Program Files (x86)\STMicroelectronics\STM32 ST-LINK Utility\ST-LINK Utility\"
 set NAMEALLMEMS1=Release\STM32L476JG-SensorTile_ALLMEMS1
 set BOOTLOADER="..\..\..\..\..\Utilities\BootLoader\STM32L476RG\BootLoaderL4.bin"
