@@ -11,6 +11,7 @@
 #include "main.h"
 #include "p2_sensor.h"
 #include "p2_motion.h"
+#include "p2_packet.h"
 #include "p2_config.h"
 
 #include "ble_interface.h"
@@ -109,7 +110,7 @@ static volatile uint32_t TimeStamp = 0;
 volatile uint32_t HCI_ProcessEvent=0;
 typedef struct  {
 	 uint32_t Steps;
-	 uint32_t Heading;
+	 int32_t Heading;
 	 uint32_t Distance;
 }COMP_Data;
 BSP_MOTION_SENSOR_Axes_t ACC_Value;
@@ -135,6 +136,8 @@ static int32_t BSP_LSM303AGR_WriteReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t
 static int32_t BSP_LSM303AGR_ReadReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t len);
 static int32_t BSP_LSM303AGR_WriteReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t len);
 static int32_t BSP_LSM303AGR_ReadReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t len);
+static int32_t P2_GyroWriteReg(uint16_t reg, uint8_t *data, uint16_t len);
+static int32_t P2_GyroReadReg(uint16_t reg, uint8_t *data, uint16_t len);
 void LSM303AGR_SPI_Read_nBytes(SPI_HandleTypeDef* xSpiHandle, uint8_t *val, uint16_t nBytesToRead);
 void LSM303AGR_SPI_Read(SPI_HandleTypeDef* xSpiHandle, uint8_t *val);
 void LSM303AGR_SPI_Write(SPI_HandleTypeDef* xSpiHandle, uint8_t val);
@@ -144,6 +147,7 @@ static const P2_SensorBus SensorBus = {
     BSP_LSM303AGR_ReadReg_Acc, BSP_LSM303AGR_WriteReg_Acc,
     BSP_LSM303AGR_ReadReg_Mag, BSP_LSM303AGR_WriteReg_Mag
 };
+static const P2_GyroBus GyroBus = {P2_GyroReadReg, P2_GyroWriteReg};
 static P2_Motion Motion;
 static uint32_t SensorErrors;
 static uint32_t AccSamples, MagSamples, BleErrors;
@@ -156,6 +160,30 @@ static uint8_t HaveMag;
 static uint8_t SpiFault;
 static uint8_t SensorReady;
 static uint32_t LastSensorAttempt;
+static uint32_t LastGyroAttempt, LastGyroTick, GyroSamples;
+static uint8_t GyroReady, HaveGyro;
+static P2_Vector GyroValue;
+
+static void InitGyro(void) {
+    if (Motion.heading_origin_set) Motion.attitude.mag_guard.reference_lost=true;
+    LastGyroAttempt=HAL_GetTick();
+    GyroReady=P2_GyroInit(&GyroBus);
+    LastGyroAttempt=HAL_GetTick(); /* Successful enable starts warm-up here. */
+    HaveGyro=0;
+    LastGyroTick=LastGyroAttempt;
+    Motion.attitude.seen=Motion.attitude.ready=Motion.attitude.calibrated=false;
+    Motion.attitude.count=0U;
+    memset(&Motion.attitude.startup,0,sizeof(Motion.attitude.startup));
+    memset(&Motion.attitude.recovery,0,sizeof(Motion.attitude.recovery));
+    Motion.heading_valid=false;
+    Motion.heading_status=Motion.heading_origin_set ? P2_HEADING_RECOVERING : P2_HEADING_CALIBRATING;
+    if (GyroReady) {
+        XPRINTF("P2INFO,sensor=LSM6DSM,status=ready,gyro_id=0x6A,odr_hz=104,fullscale_dps=2000,gyro_cal_ms=2000,heading_stable_ms=6000,keep_still_until=heading_valid\r\n");
+    } else {
+        if (SensorErrors!=UINT32_MAX) ++SensorErrors;
+        XPRINTF("P2ERROR,gyro_init_failed,retry_ms=%lu\r\n",(unsigned long)P2_SENSOR_RETRY_MS);
+    }
+}
 
 static void InitLSM(void) {
     LastSensorAttempt = HAL_GetTick();
@@ -165,6 +193,7 @@ static void InitLSM(void) {
     Motion.initialized = Motion.armed = Motion.heading_valid = false;
     if (SensorReady) {
         XPRINTF("P2INFO,sensor=LSM303AGR,status=ready,acc_id=0x33,mag_id=0x40,odr_hz=50\r\n");
+        InitGyro();
     } else {
         if (SensorErrors != UINT32_MAX) ++SensorErrors;
         XPRINTF("P2ERROR,sensor_init_failed,retry_ms=%lu\r\n", (unsigned long)P2_SENSOR_RETRY_MS);
@@ -179,7 +208,33 @@ static void ProcessSensors(void) {
         /* Retrying never blocks the BLE event loop for a full retry period. */
         goto telemetry;
     }
-    int result = P2_SensorReadAcc(&SensorBus, &value);
+    int result;
+    /* Propagate to this tick BEFORE applying the matching acceleration. */
+    if (!GyroReady && now-LastGyroAttempt>=P2_SENSOR_RETRY_MS) {
+        InitGyro();
+        now=HAL_GetTick();
+    }
+    if (GyroReady) {
+        result=P2_GyroRead(&GyroBus,&value);
+        if (result>0) {
+            GyroValue=value;
+            ++GyroSamples;
+            LastGyroTick=now;
+            HaveGyro=1;
+            if (now-LastGyroAttempt>=100U) P2_MotionGyro(&Motion,P2_GyroToBody(value),now);
+        } else if (result<0) {
+            if (SensorErrors!=UINT32_MAX) ++SensorErrors;
+            HaveGyro=GyroReady=0;
+            P2_MotionGyro(&Motion,(P2_Vector){NAN,NAN,NAN},now);
+        }
+    }
+    if (!HaveGyro || now-LastGyroTick>P2_GYRO_FRESH_MS) Motion.heading_valid=false;
+    if (GyroReady && now-LastGyroTick>P2_SENSOR_STALL_MS) {
+        GyroReady=HaveGyro=0;
+        P2_MotionGyro(&Motion,(P2_Vector){NAN,NAN,NAN},now);
+        if (SensorErrors!=UINT32_MAX) ++SensorErrors;
+    }
+    result = P2_SensorReadAcc(&SensorBus, &value);
     if (result > 0) {
         ++AccSamples;
         ACC_Value.x = (int32_t)lroundf(value.x);
@@ -191,8 +246,7 @@ static void ProcessSensors(void) {
     } else if (result < 0) {
         if (SensorErrors != UINT32_MAX) ++SensorErrors;
         HaveAcc = 0;
-        Motion.initialized = false;
-        Motion.heading_valid = false;
+        P2_MotionAcceleration(&Motion,(P2_Vector){NAN,NAN,NAN},now);
     }
     result = P2_SensorReadMag(&SensorBus, &value);
     if (result > 0) {
@@ -202,14 +256,16 @@ static void ProcessSensors(void) {
         MAG_Value.x = (int32_t)lroundf(value.x);
         MAG_Value.y = (int32_t)lroundf(value.y);
         MAG_Value.z = (int32_t)lroundf(value.z);
-        if (HaveAcc && now - LastAccTick <= P2_ACC_FRESH_MS) P2_MotionHeading(&Motion, value);
+        if (HaveAcc && HaveGyro && now-LastGyroTick<=P2_GYRO_FRESH_MS &&
+            now - LastAccTick <= P2_ACC_FRESH_MS) P2_MotionHeading(&Motion, value);
         else Motion.heading_valid = false;
     } else if (result < 0) {
         if (SensorErrors != UINT32_MAX) ++SensorErrors;
         HaveMag = 0;
         Motion.heading_valid = false;
     }
-    if (!HaveAcc || !HaveMag || now - LastAccTick > P2_ACC_FRESH_MS || now - LastMagTick > P2_MAG_FRESH_MS)
+    if (!HaveAcc || !HaveMag || !HaveGyro || now-LastGyroTick>P2_GYRO_FRESH_MS ||
+        now - LastAccTick > P2_ACC_FRESH_MS || now - LastMagTick > P2_MAG_FRESH_MS)
         Motion.heading_valid = false;
     if (now - LastAccTick > P2_SENSOR_STALL_MS || now - LastMagTick > P2_SENSOR_STALL_MS) {
         SensorReady = HaveAcc = HaveMag = 0;
@@ -218,7 +274,7 @@ static void ProcessSensors(void) {
     }
 telemetry:
     COMP_Value.Steps = Motion.steps;
-    COMP_Value.Heading = (uint32_t)lroundf(Motion.heading_deg) % 360U;
+    COMP_Value.Heading = P2_HeadingWire(Motion.heading_deg, Motion.heading_valid, Motion.heading_status);
     /* BLE distance is tenths of a metre, matching the app's /10 gyroscope scale. */
     COMP_Value.Distance = Motion.distance_m < 3276.7f ?
         (uint32_t)lroundf(Motion.distance_m * 10.0f) : 32767U;
@@ -227,7 +283,11 @@ telemetry:
         last_log = now;
         /* Integer formatting avoids enabling printf-float or changing BLE rounding.
          * Log full internal distance, not the BLE packet's saturated field. */
-        uint32_t heading10 = (uint32_t)lroundf(Motion.heading_deg * 10.0f) % 3600U;
+        /* Bound integer conversion for long-running sessions; wire overflow
+         * is explicit, UART continues to report a much wider signed range. */
+        int32_t signed_heading10 = (int32_t)lroundf(fmaxf(-200000000.0f,
+            fminf(200000000.0f, Motion.heading_deg * 10.0f)));
+        uint32_t heading10 = (uint32_t)(signed_heading10 < 0 ? -signed_heading10 : signed_heading10);
         double distance = Motion.distance_m;
         /* Adaptive step lengths may exceed uint32 metres at count saturation. */
         uint32_t metres = distance >= UINT32_MAX ? UINT32_MAX : (uint32_t)distance;
@@ -237,11 +297,12 @@ telemetry:
             if (metres < UINT32_MAX) ++metres;
             tenths = 0U;
         }
-        XPRINTF("P2DATA,ms=%lu,acc_x=%ld,acc_y=%ld,acc_z=%ld,mag_x=%ld,mag_y=%ld,mag_z=%ld,steps=%lu,heading=%ld.%lu,heading_valid=%u,distance=%lu.%lu,sensor_errors=%lu,ble_connected=%d,ble_subscribed=%u,ble_errors=%lu,sample_count=%lu,mag_sample_count=%lu,acc_fresh=%u,mag_fresh=%u,log_dropped=%lu\r\n",
+        XPRINTF("P2DATA,ms=%lu,acc_x=%ld,acc_y=%ld,acc_z=%ld,mag_x=%ld,mag_y=%ld,mag_z=%ld,steps=%lu,heading=%s%ld.%lu,heading_valid=%u,distance=%lu.%lu,sensor_errors=%lu,ble_connected=%d,ble_subscribed=%u,ble_errors=%lu,sample_count=%lu,mag_sample_count=%lu,acc_fresh=%u,mag_fresh=%u,log_dropped=%lu\r\n",
             (unsigned long)now,
             (long)ACC_Value.x, (long)ACC_Value.y, (long)ACC_Value.z,
             (long)MAG_Value.x, (long)MAG_Value.y, (long)MAG_Value.z,
             (unsigned long)Motion.steps,
+            Motion.heading_valid && signed_heading10 < 0 ? "-" : "",
             Motion.heading_valid ? (long)(heading10/10U) : -1L,
             Motion.heading_valid ? (unsigned long)(heading10%10U) : 0UL,
             (unsigned)Motion.heading_valid, (unsigned long)metres, (unsigned long)tenths,
@@ -250,7 +311,49 @@ telemetry:
             (unsigned long)BleErrors, (unsigned long)AccSamples, (unsigned long)MagSamples,
             (unsigned)(HaveAcc && now-LastAccTick <= P2_ACC_FRESH_MS),
             (unsigned)(HaveMag && now-LastMagTick <= P2_MAG_FRESH_MS), (unsigned long)LogDropped);
+        /* Separate diagnostics preserve the existing P2DATA CSV contract and
+         * leave ample room in the bounded UART line buffer. Native gyro mdps;
+         * frame conversion is explicit in P2_GyroToBody, never hidden in logs. */
+        XPRINTF("P2IMU,ms=%lu,gx_mdps=%ld,gy_mdps=%ld,gz_mdps=%ld,gyro_fresh=%u,gyro_calibrated=%u,gyro_samples=%lu,mag_aiding=%u,coast_ms=%lu,handling=%u,up_x=%ld,up_y=%ld,up_z=%ld\r\n",
+            (unsigned long)now,(long)lroundf(GyroValue.x*1000.0f),
+            (long)lroundf(GyroValue.y*1000.0f),(long)lroundf(GyroValue.z*1000.0f),
+            (unsigned)(HaveGyro && now-LastGyroTick<=P2_GYRO_FRESH_MS),
+            (unsigned)Motion.attitude.calibrated,(unsigned long)GyroSamples,
+            (unsigned)(Motion.heading_valid && HaveAcc && HaveMag && HaveGyro &&
+                now-LastAccTick<=P2_ACC_FRESH_MS && now-LastMagTick<=P2_MAG_FRESH_MS &&
+                now-LastGyroTick<=P2_GYRO_FRESH_MS && Motion.attitude.magnetic_accepted),
+            (unsigned long)(Motion.attitude.ready ? now-Motion.attitude.trusted_ms : 0U),
+            (unsigned)Motion.step_handling,
+            (long)lroundf(Motion.attitude.up.x*1000.0f),
+            (long)lroundf(Motion.attitude.up.y*1000.0f),
+            (long)lroundf(Motion.attitude.up.z*1000.0f));
+        /* Startup evidence uses BODY-frame bias/residual mdps; all angle/rate
+         * values are centidegrees or centidegrees/s. No float printf required. */
+        const P2_Attitude *f=&Motion.attitude;
+        XPRINTF("P2HEAD,ms=%lu,bx=%ld,by=%ld,bz=%ld,rx=%ld,ry=%ld,rz=%ld,ns=%lu,nb=%lu,stable_ms=%lu,span_cd=%ld,ready=%u,zero=%u,status=%u,mag_cd=%ld,innovation_cd=%ld,correction_cdps=%ld,origin_cd=%ld,mag_budget_cd=%ld,mag_delta_cd=%ld,mag_blocked=%u,reference_lost=%u,recovery_ms=%lu,recovery_samples=%lu\r\n",
+            (unsigned long)now,(long)lroundf(f->bias.x*1000.0f),
+            (long)lroundf(f->bias.y*1000.0f),(long)lroundf(f->bias.z*1000.0f),
+            (long)lroundf(f->residual_rate.x*1000.0f),
+            (long)lroundf(f->residual_rate.y*1000.0f),(long)lroundf(f->residual_rate.z*1000.0f),
+            (unsigned long)f->startup.samples,(unsigned long)f->startup.blocks,
+            (unsigned long)f->startup.elapsed_ms,(long)lroundf(f->startup.mean_span*100.0f),
+            (unsigned)f->ready,(unsigned)Motion.heading_origin_set,(unsigned)Motion.heading_status,
+            (long)lroundf(f->magnetic_heading_deg*100.0f),
+            (long)lroundf(f->innovation_deg*100.0f),(long)lroundf(f->correction_dps*100.0f),
+            (long)lroundf(Motion.heading_origin_deg*100.0f),
+            (long)lroundf(f->mag_guard.correction_deg*100.0f),
+            (long)lroundf(f->mag_guard.mean_deg*100.0f),
+            (unsigned)f->mag_guard.blocked,(unsigned)f->mag_guard.reference_lost,
+            (unsigned long)f->recovery.elapsed_ms,(unsigned long)f->recovery.samples);
         static uint32_t reported_errors;
+        static uint8_t reported_reference_loss;
+        if (Motion.attitude.mag_guard.reference_lost && !reported_reference_loss) {
+            reported_reference_loss=1U;
+            XPRINTF("P2WARN,inertial_reference_lost,reset_required=0,recovery=keep_still,steps_preserved=1\r\n");
+        } else if (!Motion.attitude.mag_guard.reference_lost && reported_reference_loss) {
+            reported_reference_loss=0U;
+            XPRINTF("P2INFO,heading_recovered,origin_preserved=1,steps_preserved=1\r\n");
+        }
         if (SensorErrors != reported_errors) {
             reported_errors = SensorErrors;
             XPRINTF("P2ERROR,sensor_io_or_stale,count=%lu\r\n", (unsigned long)SensorErrors);
@@ -374,6 +477,7 @@ void InitTargetPlatform(void)
   MX_UART5_UART_Init();
 
   P2_MotionInit(&Motion);
+  P2_MotionRequireGyro(&Motion);
   XPRINTF("P2INFO,boot,firmware=" P2_FIRMWARE_VERSION ",magnetic_calibration=%s,uart=115200_8N1\r\n",
           P2_MAG_CALIBRATED ? "MEASURED_3D" : P2_MAG_CALIBRATION_LABEL);
   InitLSM();
@@ -521,10 +625,11 @@ static void SendMotionData(void)
       mag.x = mag.y = mag.z = INT16_MIN;
   /* Avoid aliasing unrelated structs and signed 16-bit BLE wraparound. */
   summary.x = COMP_Value.Steps > 3276U ? 3276 : (int32_t)COMP_Value.Steps;
-  /* Preserve -1 for stale channels; -2/-3/-4 explain fresh invalid heading. */
-  summary.y = Motion.heading_valid ? (int32_t)COMP_Value.Heading :
-      (HaveAcc && HaveMag && now-LastAccTick <= P2_ACC_FRESH_MS &&
-       now-LastMagTick <= P2_MAG_FRESH_MS ? -(int32_t)Motion.heading_status : -1);
+  bool heading_fresh=HaveAcc && HaveMag && HaveGyro &&
+      now-LastGyroTick<=P2_GYRO_FRESH_MS && now-LastAccTick<=P2_ACC_FRESH_MS &&
+      now-LastMagTick<=P2_MAG_FRESH_MS;
+  summary.y = P2_HeadingWire(Motion.heading_deg, Motion.heading_valid && heading_fresh,
+      heading_fresh ? Motion.heading_status : P2_HEADING_UNAVAILABLE);
   summary.z = (int32_t)COMP_Value.Distance;
   if (AccGyroMag_Update(&acc, &summary, &mag) != BLE_STATUS_SUCCESS &&
       BleErrors != UINT32_MAX) ++BleErrors;
@@ -844,6 +949,35 @@ static int32_t BSP_LSM303AGR_ReadReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t 
   SPI_1LINE_TX(&hbusspi2);
   __HAL_SPI_ENABLE(&hbusspi2);
   return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : ret;
+}
+
+/* LSM6DSM shares the 3-wire SPI bus, but uses CTRL3_C.IF_INC rather
+ * than an address-bit burst flag. Always restore TX mode and release CS. */
+static int32_t P2_GyroWriteReg(uint16_t reg, uint8_t *data, uint16_t len) {
+    if (!data || !len) return BSP_ERROR_UNKNOWN_FAILURE;
+    SpiFault=0;
+    HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_RESET);
+    /* Reuse bounded polling rather than BSP_SPI2_Send's 1-second timeout. */
+    LSM303AGR_SPI_Write(&hbusspi2,(uint8_t)reg);
+    for (uint16_t i=0U;i<len && !SpiFault;++i) LSM303AGR_SPI_Write(&hbusspi2,data[i]);
+    HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_SET);
+    return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : BSP_ERROR_NONE;
+}
+static int32_t P2_GyroReadReg(uint16_t reg, uint8_t *data, uint16_t len) {
+    if (!data || !len) return BSP_ERROR_UNKNOWN_FAILURE;
+    SpiFault=0;
+    HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_RESET);
+    LSM303AGR_SPI_Write(&hbusspi2,(uint8_t)reg|0x80U);
+    __HAL_SPI_DISABLE(&hbusspi2);
+    SPI_1LINE_RX(&hbusspi2);
+    if (!SpiFault) {
+        if (len>1U) LSM303AGR_SPI_Read_nBytes(&hbusspi2,data,len);
+        else LSM303AGR_SPI_Read(&hbusspi2,data);
+    }
+    HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_SET);
+    SPI_1LINE_TX(&hbusspi2);
+    __HAL_SPI_ENABLE(&hbusspi2);
+    return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : BSP_ERROR_NONE;
 }
 
 

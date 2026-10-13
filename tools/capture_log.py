@@ -66,10 +66,7 @@ def parse_line(line, host_time=None):
         if key == 'distance' and number < 0:
             raise ValueError('Negative distance')
         row[column] = number
-    if row['heading_valid']:
-        if not 0 <= row['heading_deg'] < 360:
-            raise ValueError('Invalid valid-heading range')
-    elif row['heading_deg'] != -1:
+    if not row['heading_valid'] and row['heading_deg'] != -1:
         raise ValueError('Invalid heading must use -1 sentinel')
     return row
 

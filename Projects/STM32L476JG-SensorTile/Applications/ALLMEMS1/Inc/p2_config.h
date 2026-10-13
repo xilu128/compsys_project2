@@ -1,11 +1,11 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "gait-continuity-1"
+#define P2_FIRMWARE_VERSION "heading-demo-7"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 /* Sensor register axes are the body axes. Mount +X forward, +Z up.
- * Heading is clockwise from the user-aligned reference; verify physical +X. */
+ * Heading is clockwise relative to the first valid settled startup direction. */
 #define P2_LOG_PERIOD_MS 100U /* UART telemetry only; sensor ODR remains 50 Hz. */
 #define P2_LOG_LINE_BYTES 512U
 #define P2_LOG_QUEUE_DEPTH 8U /* Bounded RAM queue; never wait for UART wire time. */
@@ -26,6 +26,19 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_STEP_WEAK_CONFIRM_COUNT 5U
 #define P2_STEP_WEAK_CADENCE_RATIO 1.25f
 #define P2_STEP_CADENCE_RATIO 1.6f
+/* Deliberate large back-and-forth handling is not a walking bout. Work on
+ * normalized acceleration direction, independently of heading/gyro state.
+ * These conservative heuristics may reject walking with exaggerated arm
+ * rotations; human carrying-mode accuracy still requires measurement. */
+#define P2_STEP_DIRECTION_FILTER_S 0.10f
+#define P2_STEP_ROTATION_MIN_RAD 0.002f
+#define P2_STEP_ROTATION_AXIS_COS 0.70f
+#define P2_STEP_ROTATION_SWEEP_RAD 0.52359878f /* 30 degrees */
+#define P2_STEP_ROTATION_REVERSE_RAD 0.26179939f /* 15 degrees hysteresis */
+#define P2_STEP_ROTATION_REPEAT_MS 3000U /* Require two reversals, not one reposition. */
+#define P2_STEP_HANDLING_HOLD_MS 2000U
+#define P2_STEP_HANDLING_QUIET_MS 1000U
+#define P2_STEP_HANDLING_QUIET_COS 0.96592583f /* Within a 15-degree direction cone. */
 /* Calibrate with measured distance, manual steps and walking-only duration.
  * Adaptive mode stays off until independently validated coefficients exist. */
 #define P2_STEP_LENGTH_M 0.70f
@@ -36,11 +49,8 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_STRIDE_MAX_HZ 2.5f
 #define P2_STRIDE_MIN_M 0.25f
 #define P2_STRIDE_MAX_M 1.50f
-/* Empirical zero from user-labelled level south/north holds, Oct 12.
- * Circular mean of 180-129.368727 and 360-310.956849 = +49.837212 deg.
- * Approximate local reference, NOT a geomagnetic declination measurement.
- * Recheck with independent directions and after changing board mounting. */
-#define P2_HEADING_OFFSET_DEG 49.837212f
+/* Absolute north alignment is unnecessary for boot-relative heading. */
+#define P2_HEADING_OFFSET_DEG 0.0f
 /* Empirical board yaw convention: trial 3's labelled clockwise turn produced
  * -360 degrees with the original sign. Do not infer a 3D axis remapping from
  * two horizontal turns; raw XYZ and the tilt projection are kept unchanged. */
@@ -54,6 +64,50 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_HEADING_FILTER_S 0.15f /* Circular low-pass; never latch a stale heading. */
 /* Seconds, milliseconds, mg and mGauss: keep tunable physical limits here. */
 #define P2_GRAVITY_FILTER_S 0.6f
+/* Dedicated heading tilt vector. Never change the pedometer baseline above. */
+#define P2_TILT_FILTER_S 0.03f
+/* Gyro-aided tilt. Engineering safeguards, not validated accuracy limits. */
+#define P2_GYRO_FRESH_MS 50U
+#define P2_GYRO_MAX_DPS 2000.0f /* Per axis, matching CTRL2_G and sensitivity. */
+#define P2_GYRO_CAL_MS 2000U
+#define P2_GYRO_CAL_MIN_SAMPLES 150U
+#define P2_GYRO_CAL_MAX_DPS 3.0f
+#define P2_GYRO_CAL_SPREAD_DPS 0.8f
+/* Initial zero is a stable multi-sample reference, not the first mag sample.
+ * Three consecutive circular block means must agree. Noise excursions are
+ * allowed separately from the much stricter mean-trend threshold. */
+#define P2_STARTUP_BLOCK_MS 2000U
+#define P2_STARTUP_BLOCKS 3U
+#define P2_STARTUP_MIN_SAMPLES 200U
+#define P2_STARTUP_RATE_MAX_DPS 0.35f
+#define P2_STARTUP_ACC_NORM_TOL_MG 40.0f
+#define P2_STARTUP_UP_COS_MIN 0.9993908f /* 2 degrees */
+#define P2_STARTUP_MAG_MAX_DEG 8.0f
+#define P2_STARTUP_MEAN_SPAN_DEG 0.5f
+#define P2_STARTUP_FIELD_SPAN_RATIO 0.10f
+#define P2_FUSION_ACC_FILTER_S 2.0f
+#define P2_FUSION_ACC_NORM_TOL_MG 80.0f
+#define P2_FUSION_ACC_COS_MIN 0.9781476f /* 12 degrees */
+#define P2_FUSION_MAG_STRENGTH_RATIO 0.20f
+#define P2_FUSION_MAG_DIP_MAX_DEG 15.0f
+#define P2_FUSION_MAG_INNOVATION_DEG 20.0f
+#define P2_FUSION_MAG_FILTER_S 5.0f
+#define P2_FUSION_MAG_CORRECTION_DPS 0.5f
+/* Magnetic checks gate aiding, not fresh gyro-transported heading output.
+ * There is no lifetime correction budget or five-second display cutoff.
+ * +/-5 deg over 120 s at rest remains a measured demo target, not a guarantee
+ * during persistent interference or unlimited gyro-only operation. */
+#define P2_MAG_GUARD_BLOCK_MS 2000U
+#define P2_MAG_GUARD_MIN_SAMPLES 50U
+#define P2_MAG_GUARD_ENTRY_DEG 6.0f
+#define P2_MAG_GUARD_EXIT_DEG 2.5f
+/* After actual inertial loss, reacquire a stable magnetic/gravity endpoint.
+ * Preserve the original zero and steps; do not reconstruct unobserved turns. */
+#define P2_HEADING_RECOVERY_MS 2000U
+#define P2_HEADING_RECOVERY_MIN_SAMPLES 80U
+#define P2_HEADING_RECOVERY_RATE_DPS 3.0f
+#define P2_HEADING_RECOVERY_STRENGTH_RATIO 0.50f
+#define P2_HEADING_RECOVERY_DIP_DEG 30.0f
 #define P2_MOTION_FILTER_S 0.06f
 #define P2_SETTLE_MS 1000U
 #define P2_SAMPLE_GAP_MS 250U

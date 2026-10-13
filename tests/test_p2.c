@@ -9,12 +9,14 @@
 
 static void near(float actual, float expected, float eps) { assert(fabsf(actual-expected) < eps); }
 static void heading_near(float actual, float expected, float eps) {
-    assert(actual >= 0.0f && actual < 360.0f);
-    float difference = fmodf(actual-expected-P2_HEADING_OFFSET_DEG+540.0f,360.0f)-180.0f;
+    assert(isfinite(actual));
+    float difference = remainderf(actual-expected-P2_HEADING_OFFSET_DEG,360.0f);
     assert(fabsf(difference) < eps);
 }
 static void settle(P2_Motion *s) {
     P2_MotionInit(s);
+    /* Fixed origin isolates absolute projection geometry in these fixtures. */
+    s->heading_origin_set = true;
     /* Analytic vectors below are already bias-free, unlike the hardware logs. */
     s->mag_bias = (P2_Vector){0,0,0};
     s->mag_scale = (P2_Vector){1,1,1};
@@ -49,6 +51,16 @@ static bool ready_heading(P2_Motion *s, P2_Vector m) {
     return false;
 }
 int main(void) {
+    assert(P2_HeadingWire(-1.0f,1,1)==-10);
+    assert(P2_HeadingWire(-0.1f,1,1)==-1);
+    assert(P2_HeadingWire(-720.0f,1,1)==-7200);
+    assert(P2_HeadingWire(720.0f,1,1)==7200);
+    assert(P2_HeadingWire(3200.0f,1,1)==32000);
+    assert(P2_HeadingWire(-3200.0f,1,1)==-32000);
+    assert(P2_HeadingWire(3201.0f,1,1)==-32764);
+    assert(P2_HeadingWire(-3201.0f,1,1)==-32764);
+    for(unsigned status=1;status<=4;status++)
+        assert(P2_HeadingWire(0.0f,0,status)==-32769+(int)status);
     P2_Motion s;
     settle(&s);
     for (unsigned t=2000;t<62000;t+=20)

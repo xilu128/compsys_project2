@@ -22,7 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'C compilation failed' }
     & $exe
     if ($LASTEXITCODE -ne 0) { throw 'C tests failed' }
-    foreach ($name in @('test_heading','test_step_bouts','test_gait','test_heading_calibrated')) {
+    foreach ($name in @('test_heading','test_step_bouts','test_gait','test_handling','test_heading_calibrated','test_fusion','test_startup','test_mag_consistency','test_gyro_sensor')) {
         $extraExe=Join-Path $out ($name+'.exe')
         $extraArgs=@()
         if ([IO.Path]::GetFileNameWithoutExtension($Compiler) -eq 'zig') { $extraArgs += 'cc' }
@@ -31,8 +31,10 @@ try {
             $sourceName='test_heading'
             $extraArgs += '-DP2_MAG_CALIBRATED=1'
         }
+        $implementation='Src\p2_motion.c'
+        if ($name -eq 'test_gyro_sensor') { $implementation='Src\p2_sensor.c' }
         $extraArgs += @('-std=c99','-Wall','-Wextra','-Werror','-pedantic',('-I'+(Join-Path $app 'Inc')),
-            (Join-Path $PSScriptRoot ($sourceName+'.c')),(Join-Path $app 'Src\p2_motion.c'),'-o',$extraExe)
+            (Join-Path $PSScriptRoot ($sourceName+'.c')),(Join-Path $app $implementation),'-o',$extraExe)
         & $Compiler @extraArgs
         if ($LASTEXITCODE -ne 0) { throw "$name compilation failed" }
         & $extraExe

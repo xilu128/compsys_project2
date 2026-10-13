@@ -29,13 +29,19 @@ class LoggingTests(unittest.TestCase):
 
     def test_malformed(self):
         for line in [LINE+',ms=3', LINE.replace(',steps=10',''), LINE.replace('ms=1000','ms=nan'),
-                     LINE.replace('heading=90.0','heading=nan'), LINE.replace('heading=90.0','heading=360'),
+                     LINE.replace('heading=90.0','heading=nan'), LINE.replace('heading=90.0','heading=inf'),
                      LINE.replace('heading_valid=1','heading_valid=0'), LINE.replace('steps=10','steps=-1'),
                      LINE.replace('ble_connected=1','ble_connected=2')]:
             with self.subTest(line=line), self.assertRaises(ValueError):
                 log.parse_line(line)
         self.assertIsNone(log.parse_line('P2INFO,boot'))
         self.assertIsNone(log.parse_line('P2ERROR,sensor_init_failed'))
+
+    def test_signed_turns(self):
+        for degrees in (-720, -360, -1, -0.1, 0, 360, 720):
+            row = log.parse_line(LINE.replace('heading=90.0', f'heading={degrees}'))
+            self.assertEqual(row['heading_deg'], degrees)
+            self.assertEqual(row['heading_valid'], 1)
 
     def test_chunks_raw_and_recovery(self):
         raw, output = io.BytesIO(), io.StringIO(newline='')

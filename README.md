@@ -1,12 +1,264 @@
 # CS704 Project 2 — Group 02 — SensorTile motion tracking
 
+## Current demo: gyro-aided horizontal heading (`heading-demo-7`)
+
+This revision supersedes the absolute/reference-aligned heading descriptions
+below. Keep the board still, away from metal, **until calibration finishes**.
+The LSM6DSM gyro first needs a continuous 2-second bias window. Then heading
+requires a continuous 6-second quiet magnetic/acceleration window: three 2-second
+circular magnetic-heading means must differ by no more than 0.5 degrees.
+Ideal startup takes about 8 seconds; movement or a still-changing magnetic field
+extends it. There is no timeout that forces an unstable zero. Do not slowly rotate
+during startup. The same window averages magnetic XYZ and gravity XYZ, and refines
+gyro bias; that averaged tilt-compensated direction defines **0 degrees**.
+After zero is established, neither the origin nor gyro bias is continuously
+relearned. Real slow turns remain observable; the display is not held at zero.
+Clockwise rotation from startup displays +90, +180, +270, then 0 at a full turn.
+Counterclockwise rotation from startup displays -90, -180, -270, then 0.
+Reversing back along the path subtracts the previous rotation and returns to 0.
+Only the current signed cycle is retained; crossing the startup direction clears
+old winding, including crossings between samples. Thus after a negative full
+turn, -3 -> 0 -> +3 displays +3, not -357. Away from startup zero, reversing
+rotation decreases the current angle without immediately changing its sign.
+UART, BLE and the dial use that same value. Full-turn values
+within 0.05 degrees round to 0 at telemetry precision; larger physical errors
+are not forced to zero. This is horizontal heading of board +X, not rotation
+around X and not a full 3D attitude. No roll/pitch display is implemented.
+The updated desktop viewer uses degree labels instead of N/E/S/W; restart it
+after updating. Use it with this firmware, not older heading builds: old negative
+status codes are now legitimate negative angles, so mixed versions are unsafe.
+
+BLE bytes 10-11 contain signed tenths of a degree, including fractional negative
+angles. Current firmware output lies strictly between -360 and +360 degrees;
+the decoder retains the previous +/-3200 range for signed-turns-1 compatibility.
+Raw int16 codes -32768/-32767/-32766/-32765 mean unavailable/calibrating/
+disturbed/recovering; -32764 means angle range exceeded (restart to re-zero).
+The updated viewer treats these as statuses, never as angles. Old viewers must
+not be used. UART keeps its explicit heading_valid flag: -1 with flag 1 is a
+real angle; -1 with flag 0 is invalid. The logger accepts signed values.
+
+The origin remains fixed through invalid readings, sampling gaps and BLE
+reconnections. Only motion-state initialization (normally board restart) clears
+it. Invalid startup readings delay zero acquisition. After zero, an inertial
+sample loss that discards orientation (gyro gap/error or acceleration reset)
+temporarily pauses valid output, then automatically reacquires a stable endpoint.
+Keep still for at least two seconds of fresh gyro/acceleration/magnetic data;
+at least 80 distinct magnetic samples are needed. A gyro driver restart also
+requires its initial bias calibration. Recovery preserves the original zero,
+field reference and published step totals; the recovery pose is NOT a new zero.
+The recovery window checks acceleration, angular rate, magnetic strength/dip,
+direction stability and sample continuity. Invalid data cannot force recovery.
+BLE loss alone does not lose turns while firmware acquisition continues. Keep
+each observed change below 180 degrees; complete turns during missing inertial
+data cannot be reconstructed. Reacquisition can produce an endpoint correction.
+Calibration, tilt compensation,
+magnetic checks and circular filtering still apply. Relative zero does not cure
+magnetic interference or calibration error. Physical demo accuracy still needs
+a level clockwise/counterclockwise rotation test after flashing.
+
+Current tilt processing uses LSM6DSM gyro (104 Hz ODR, polled at 100 Hz,
+2000 dps full scale, 0.07 dps/LSB), while the required LSM303AGR raw channels remain unchanged.
+Gyro transport rotates both gravity and horizontal north. Acceleration provides
+slow, gated tilt correction; suspect linear acceleration is not treated as gravity.
+Magnetic yaw correction is limited to 0.5 deg/s and rejected for large field
+strength, dip or innovation changes. Rejected magnetics disable magnetic aiding,
+but **fresh gyro continues to transport and publish the changing angle**: there
+is no five-second display cutoff or permanent disturbance latch. The estimate
+can be gyro-only, NOT a certified magnetically corrected heading; `P2IMU.mag_aiding`
+and `coast_ms` expose that distinction. Longer gyro-only intervals can drift.
+Actual missing/invalid gyro still pauses output and triggers automatic recovery.
+Range rejection is per axis above 2000 dps, not a 490 dps vector-norm threshold.
+Initial magnetic contamination, same-strength direction-only interference after a
+data gap, residual calibration errors and slow bias-learning motion are not fully
+observable. This is not an interference-proof compass.
+
+`heading-demo-7` removes the lifetime magnetic-correction budget and independently
+integrated boot-direction rejection. Short-window confidence now uses innovation
+against the running attitude, allowing magnetic correction of accumulated gyro
+bias. Two-second circular means above 6 degrees suspend magnetic aiding; a clean
+mean below 2.5 degrees clears that condition. Hard magnetic rejection also requires
+a complete clean block before aiding resumes. These checks affect the correction,
+not the fresh inertial angle. Large persistent innovations may continue to prevent
+magnetic aiding; data availability does not imply bounded long-term angle error.
+The core gyro/tilt transport and pedometer detector are unchanged.
+
+These are conservative engineering thresholds, not measured accuracy limits.
+The user-selected acceptance target is **120 continuous seconds after the first
+valid startup zero, all heading samples valid and within +/-5 degrees while the
+board stays still**. This revision changes magnetic-rejection consequences,
+automatic recovery and gyro range, not that acceptance target. It neither clamps
+the display to +/-5 degrees nor resets the origin to hide drift. Actual turns
+beyond 5 degrees must remain observable. Passing analytic fixtures is not a
+hardware acceptance result.
+Residual gyro bias and slowly varying magnetic fields can still change the estimate;
+there is no guarantee of indefinite drift-free or interference-proof operation.
+Hardware acceptance must report both valid-angle error AND valid-output fraction,
+not count invalid samples as zero-error readings. Recheck slow turns and tilts.
+
+Known boundary, explicitly NOT passed by `heading-tolerance-6`: a magnetic target
+ramping by +/-5 degrees in 80 seconds while post-startup gyro bias is +/-0.04 deg/s.
+Over 120 seconds, same-sign combinations stay valid but peak at about 5.198 deg;
+opposite-sign combinations become invalid at 65.29 s (6528/12000 valid samples).
+Those are historical results for version 6, not version 7 test results. The
+combined magnetic-drift/bias fixture remains a separate `--boundary` characterization
+with the same +/-5-degree and 100%-valid target. Do not infer robustness to changing
+fields from a single successful stationary recording.
+
+Version 7 software verification (2026-10-13): the default Windows regression suite
+and all four recorded walking/handling replays pass. Twelve 120-second synthetic
+stationary cases (gyro residual +/-0.025 or +/-0.04 deg/s, stable field or modest
+direction variation/noise) remain 100% valid, with maximum displayed error 1.6521 deg.
+The separate strict `--boundary` run intentionally remains a known failure:
+four of six extreme cases exceed 5 degrees (maximum 5.1980 deg), although all
+12000 samples per case remain valid. This is NOT a claim that every accuracy test
+passes. The new regressions also cover signed full turns at 600/1000 deg/s,
+magnetic-strength variation, per-axis gyro range, and automatic recovery without
+losing the original zero or step count. Synthetic tests do not establish physical
+turn/tilt accuracy.
+
+Version 7 on-board check (2026-10-13): Debug build completed with 0 errors and
+0 warnings; application write/readback verification passed at 0x08004000.
+The existing bootloader was retained, and the previous full 1 MiB flash is in
+`../environment_backup/before_heading_demo7_20261013_d93a6.bin`.
+Firmware BIN SHA256:
+`90CAD9375BE79D9352FF6EA60C31A91A90A90FA3E2242C46339AB769F831F4B7`.
+UART capture began before reset/programming and is saved as
+`../logs/heading_demo7_boot_20261013_d93a6.log`. Analyze only the new
+`firmware=heading-demo-7` boot, not the preceding version 6 data. Its startup
+reports gyro ID 0x6A, 104 Hz and 2000 dps. First valid zero is at 22301 ms.
+The inclusive 22301..142301 ms window has 1201 records at exactly 100 ms intervals,
+all heading-valid, with displayed range -2.4..+0.1 deg. Origin stays 11866
+centidegrees; steps, sensor/BLE errors, UART drops and reference-loss flags stay
+zero. Magnetic aiding remains active in every logged sample. Thus this recorded
+window passes the chosen availability and +/-5-degree target. Sensor traces are
+consistent with near rest; they cannot independently prove complete physical
+immobility. The desktop viewer was connected at about 20 Hz with CSV recording
+enabled. Full physical clockwise/counterclockwise and tilted-turn accuracy still
+require the user's follow-up test; do not infer those results from this static run.
+
+Native gyro XYZ is mapped to (-Y,-X,-Z) for the existing LSM303AGR register frame.
+This uses the original ST MotionFX `wsu`/`swu` orientations and the determinant
+sign for an axial vector under a reflected coordinate transform. **Physical axis
+correlation and tilted-yaw accuracy are still acceptance tests**, not established
+by synthetic geometry. See [ST's clarification of the inconsistent axis drawing](https://community.st.com/mems-sensors-48/coordinate-system-of-lsm303c-lsm303agr-lsm303ar-is-right-hand-54054).
+Forward +X near vertical remains deliberately invalid (|up.x| > 0.95, about
+72 degrees pitch). Calibration remains `DIAGONAL_3D_PENDING_VALIDATION`.
+
+Pedometer processing now rejects repeated large direction reversals, discarding
+unconfirmed peaks during handling. Release requires a quiet direction cone as
+well as a minimum hold time. The magnitude baseline, step sensitivity, distance
+model and existing published totals are retained. Exaggerated back-and-forth arm
+motion while walking may be rejected too: carrying-mode accuracy needs retesting.
+
+Development checks for this revision:
+
+- Same user tilt trial, 20 Hz BLE snapshots: old algorithm 20 false steps,
+  new algorithm 0. The old board actually reported 21 at full rate. The 10 Hz
+  UART snapshots yield 0 in both versions and are NOT improvement evidence.
+- Existing 50-step walking development recording still replays as 51; flip
+  recording remains 0. Eighteen analytic pitch/roll rocking cases produce 0.
+- Independent combined yaw/pitch/roll plus translation fixtures: maximum heading
+  error 0.0051 deg in ideal synthetic data. This is NOT physical accuracy.
+- Boot-only regressions cover a first magnetic outlier, convergence before zero,
+  bias refinement, 60-second stationary simulation and real 0.1 deg/s turns.
+  Sensor interruptions, duplicate timestamps and inertial movement between
+  magnetic updates cannot satisfy the quiet window. Pedometer state remains
+  identical sample-for-sample in the paired startup regression.
+- Tests cover sensor I/O faults, bias startup, orthogonality, magnetic rejection,
+  recovery, near-vertical invalidity, full-turn zero and tick wrap.
+- The old real-world trial has no gyro samples; do not invent gyro values to
+  claim this heading implementation has passed that recording. After flashing,
+  verify level turns, +/-30-degree pitch/roll, near-vertical rejection, return to
+  rest, no-step rocking and independent counted walking trials.
+
+First on-board check (2026-10-13, `motion_fusion3_trial_20261013_1a947.log`):
+Debug compiled with 0 errors/warnings and SWD write verification passed at
+0x08004000; bootloader retained and full flash backed up. Gyro samples advance
+at 100 Hz and desktop BLE at about 20.2 Hz. In the user's slower tilt trial,
+acceleration-derived pitch reached about -38 to +51 degrees. Heading baseline
+(device 45-52 s) was +4.88 deg; motion (53-75 s) ranged +2.7 to +8.8 deg,
+maximum deviation 3.92 deg. Returned rest (85-110 s) averaged +2.477 deg,
+an offset of -2.403 deg from baseline, with 2.4-2.6 deg range. Steps stayed 0;
+no sensor/BLE errors, invalid headings or dropped UART records in that interval.
+Gyro-propagated up and acceleration direction agreed within 3.9 deg while moving
+(translation means acceleration is not an independent ground-truth attitude).
+This supports pitch tracking, NOT full three-axis/yaw mapping certification.
+The slower motion is not a controlled reproduction of the earlier fast rocking:
+repeat fast rocking and independent counted walking before final acceptance.
+
+UART adds `P2IMU` diagnostics alongside unchanged `P2DATA`: native gyro in mdps,
+fresh/calibrated flags, sample counter, magnetic-aiding flag, inertial coast age,
+handling flag and estimated unit-up vector scaled by 1000. The raw `.log` keeps
+these records; the existing CSV logger intentionally keeps its original columns.
+`P2HEAD` (introduced in `startup-zero-4`) reports `bx/by/bz` as learned BODY-frame gyro bias
+in mdps; `rx/ry/rz` are residual rates in that frame. `ns/nb/stable_ms/span_cd`
+describe the boot window (samples/blocks/milliseconds/block-mean span in
+centidegrees). `ready/zero/status` describe state; `mag_cd/innovation_cd`,
+`correction_cdps` and `origin_cd` expose magnetic target, innovation, applied yaw
+correction rate and fixed zero. Correction is zero when not applied; target and
+innovation must be interpreted with fresh/valid/aiding flags. Start UART recording
+before reset to capture the full boot and learned reference, then keep still for
+at least 120 seconds after zero. A changing external field or later thermal bias
+can still change heading; software fixtures alone are not hardware acceptance.
+`mag_budget_cd` retains its legacy key but in version 7 is only a wrapped diagnostic
+total of magnetic correction, NOT a budget. `mag_delta_cd` is the last complete
+current-innovation mean; `mag_blocked` describes magnetic aiding, not heading validity.
+These angles are centidegrees. `reference_lost` now means automatic reacquisition
+pending. `recovery_ms` and `recovery_samples` show that window's progress. Loss logs
+`P2WARN,inertial_reference_lost,reset_required=0,recovery=keep_still,steps_preserved=1`;
+successful reacquisition logs `P2INFO,heading_recovered,origin_preserved=1,steps_preserved=1`.
+Tests cover tolerated small
+magnetic changes, excessive drift, repeated block interruptions, clean recovery,
+real +/-0.1 deg/s turns, combined tilt/yaw/translation, and independent steps.
+The 20-byte BLE packet format is unchanged, so the signed-cycle desktop viewer
+remains compatible. Historical sections below describe older revisions.
+
+Previous startup-reference hardware check (2026-10-13; user subsequently confirmed
+the board and nearby objects stayed untouched):
+`logs/startup_zero4_boot_20261013_c9f84.log` in the parent project directory
+was opened BEFORE backup/reset/flash. Analyze only its final
+`firmware=startup-zero-4` boot segment; earlier segments are the prior firmware.
+Debug built with 0 errors/warnings; application write at 0x08004000 verified.
+First valid output was at 12.201 s, after 307 samples / 6030 ms with a 0.41-degree
+block-mean span. Origin remained 86.96 degrees. Initial approximately 40 seconds
+after zero ranged -0.2 to +0.9 degrees, but the full first minute reached +4.2
+degrees. Device 60-70 s displayed +3.323 degrees on average while the magnetic
+target averaged +4.363 degrees relative to zero; mean residual gyro yaw rate was
+only about +0.0038 deg/s. By 80-90 s the output mean returned to +0.043 degrees.
+Steps, sensor errors, BLE errors and dropped logs remained zero in those windows.
+This did NOT pass stationary-heading acceptance: startup seeding was improved,
+but a changing magnetic target still influenced running yaw correction. It motivated
+the current consistency safeguard. The source of the fluctuating magnetic readings
+has not been physically isolated; this is not proof that nearby objects moved.
+The original complete 1 MiB flash image is preserved in the parent
+`environment_backup/before_startup_zero4_20261013_c9f84.bin`.
+
+Previous `mag-consistency-5` guard hardware check (2026-10-13): Debug built with 0 errors/warnings;
+the 51,816-byte application verified at 0x08004000. Binary SHA256:
+`8F52F31A2755198769EC9F8EE863642D4331DF651BF9A101010D9F46C7574241`.
+Prior complete flash is in the parent
+`environment_backup/before_mag_consistency5_20261013_b6719.bin` (1,048,576 bytes).
+UART `logs/mag_consistency5_boot_20261013_b6719.log` began before reset/flash;
+use only its final `firmware=mag-consistency-5` segment. First valid was at
+8.201 s (307 samples / 6030 ms / 0.12-degree startup mean span). The first
+60 seconds AFTER zero had 601/601 valid samples, ranging -0.3 to +0.3 degrees.
+Through device 103.501 s, validity was 882/954 = 92.45%, with valid angles
+-0.8 to +0.3 degrees. Disagreement latched around 91.4 s; invalid output began
+at 96.401 s and was still ongoing at the analysis cutoff. `reference_lost`
+remained 0, and steps/sensor/BLE/log-drop counters remained zero. Mean residual
+gyro yaw was approximately -0.013 to -0.017 deg/s in device 50-100 s: the
+independent inertial reference can itself slowly drift. Thus the safeguard is
+working, but sustained stationary availability is NOT accepted yet. Do not
+present the first-minute result alone as full success. Physical slow-turn and
+tilt checks, plus continued residual-bias diagnosis, remain pending.
+
 This implementation extends the supplied COMSYS704 starter. It acquires real
 LSM303AGR acceleration/magnetic field, detects steps and estimates magnetic
 heading with tilt compensation, and sends measurements through the existing
 ST BLE Sensor application interface. Distance is an additional fixed-stride
 estimate, not an independently measured position.
 
-**Current revision (Windows, 2026-10-05): `heading-fix-1`.** Debug clean build,
+**Historical revision (Windows, 2026-10-05): `heading-fix-1`.** Debug clean build,
 desktop regression tests, STLINK programming/verification, UART and Windows
 BLE runtime checks passed. Heading now uses provisional measured XY bias,
 an empirical horizontal-turn direction correction and circular smoothing.
