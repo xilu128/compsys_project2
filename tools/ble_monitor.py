@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 LOGS = ROOT / 'logs' / 'ble_monitor'
 ADDRESS = 'F9:B0:57:92:6B:52'
 NAME = 'P202S01'
+HEADING_STATUS = {-3276.8: 'Unavailable', -3276.7: 'Calibrating',
+                  -3276.6: 'Disturbance', -3276.5: 'Recovering',
+                  -3276.4: 'Angle range exceeded; restart board'}
 FIELDS = ['host_time_iso', 'session', 'device_tick_8ms', 'acc_x_mg', 'acc_y_mg',
           'acc_z_mg', 'mag_x_mgauss', 'mag_y_mgauss', 'mag_z_mgauss',
           'step_count', 'heading_deg', 'heading_valid', 'distance_m',
@@ -27,10 +30,10 @@ FIELDS = ['host_time_iso', 'session', 'device_tick_8ms', 'acc_x_mg', 'acc_y_mg',
 
 def packet(data, session=1):
     p = decode(data)
-    if p['steps'] < 0 or p['distance'] < 0 or not (p['heading'] in (-1, -2, -3, -4) or 0 <= p['heading'] < 360):
+    if p['steps'] < 0 or p['distance'] < 0 or not (p['heading'] in HEADING_STATUS or -3200 <= p['heading'] <= 3200):
         raise ValueError('Invalid summary fields in motion packet')
     p.update(received=time.monotonic(), host_time_iso=datetime.now().astimezone().isoformat(),
-             session=session, heading_valid=p['heading'] >= 0,
+             session=session, heading_valid=p['heading'] not in HEADING_STATUS,
              acc_fresh=-32768 not in p['acc'], mag_fresh=-32768 not in p['mag'],
              raw_hex=bytes(data).hex())
     return p
@@ -226,7 +229,7 @@ class Monitor:
         cards.pack(side='left', fill='both', expand=True)
         self.values = {}
         descriptions = [('steps', 'Step count', 'Steps since board startup'),
-                        ('heading', 'Board heading', 'Board +X · Firmware reference'),
+                        ('heading', 'Relative heading', 'Board +X · Startup = 0°'),
                         ('distance', 'Estimated distance', 'Firmware estimate · Model not reported'),
                         ('rate', 'BLE notification rate', 'Receive rate · Sensor rate differs')]
         for i, (key, label, note) in enumerate(descriptions):
@@ -265,7 +268,7 @@ class Monitor:
         self.log_path = tk.StringVar(value=f'CSV folder: {LOGS}')
         ttk.Label(wrap, textvariable=self.log_path, wraplength=980, foreground=self.muted,
                   font=(self.font, 9)).pack(anchor='w')
-        ttk.Label(wrap, text='Heading reference depends on firmware calibration/alignment. Validate against known directions. Forward: board +X. BLE limits: 3276 steps / 3276.7 m.',
+        ttk.Label(wrap, text='Requires signed-cycle-1 firmware. Startup = 0°. Signed angle resets each full turn; not north. Missing sensor data may lose rotation history.',
                   foreground=self.muted, font=(self.font, 9), wraplength=980).pack(anchor='w', pady=(4, 0))
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.after(100, self.poll)
@@ -331,7 +334,7 @@ class Monitor:
         if fresh:
             p = self.latest
             self.values['steps'].set(f"{p['steps']:g}" + (' (limit)' if p['steps'] >= 3276 else ''))
-            self.values['heading'].set(f"{p['heading']:.1f}°" if p['heading_valid'] else {-1: 'Unavailable', -2: 'Calibrating', -3: 'Disturbance', -4: 'Recovering'}.get(p['heading'], 'Invalid'))
+            self.values['heading'].set(f"{p['heading']:+.1f}°" if p['heading_valid'] else HEADING_STATUS.get(p['heading'], 'Invalid'))
             self.values['distance'].set(f"{p['distance']:.1f} m")
             recent = [x for x in self.history if now - x['received'] < 5]
             hz = (len(recent)-1)/(recent[-1]['received']-recent[0]['received']) if len(recent)>1 else 0
@@ -365,7 +368,7 @@ class Monitor:
             a = math.radians(angle)
             c.create_line(cx+math.sin(a)*(r-5), cy-math.cos(a)*(r-5),
                           cx+math.sin(a)*r, cy-math.cos(a)*r, fill='#d2d2d7')
-        for x, y, label in [(cx, 20, 'N'), (cx+88, cy, 'E'), (cx, 186, 'S'), (cx-88, cy, 'W')]:
+        for x, y, label in [(cx, 20, '0°'), (cx+88, cy, '+90°'), (cx, 186, '±180°'), (cx-88, cy, '-90°')]:
             c.create_text(x, y, text=label, fill=self.muted, font=(self.font, 10))
         if valid:
             heading = self.latest['heading']
@@ -374,12 +377,11 @@ class Monitor:
             c.create_line(cx-dx*28, cy-dy*28, cx+dx*52, cy+dy*52,
                           fill='#007aff', width=4, arrow='last', arrowshape=(14, 16, 6))
             c.create_oval(cx-5, cy-5, cx+5, cy+5, fill='#007aff', outline='white', width=2)
-            direction = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][int((heading+22.5)//45)%8]
-            caption = direction + ' · Board +X'
+            caption = f'{heading:+.1f}° · From startup'
         else:
             c.create_text(cx, cy, text='—', fill='#aeaeb2', font=(self.font, 30))
             caption = ('Stale data' if self.state != 'connected' or time.monotonic()-self.latest['received'] > 1 else
-                       {-2: 'Establishing reference', -3: 'Magnetic disturbance', -4: 'Confirming recovery'}.get(self.latest['heading'], 'Heading unavailable')) if self.latest else 'Waiting for heading'
+                       HEADING_STATUS.get(self.latest['heading'], 'Heading unavailable')) if self.latest else 'Waiting for heading'
         c.create_text(cx, 215, text=caption, fill=self.ink, font=(self.font, 11))
 
     def draw(self, now):

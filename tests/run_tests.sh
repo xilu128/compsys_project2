@@ -23,3 +23,15 @@ ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined 
 
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_gait.c "$app/Src/p2_motion.c" -lm -o "$out/test_gait"
 "$out/test_gait"
+
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_handling.c "$app/Src/p2_motion.c" -lm -o "$out/test_handling"
+"$out/test_handling"
+
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_fusion.c "$app/Src/p2_motion.c" -lm -o "$out/test_fusion"
+"$out/test_fusion"
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_startup.c "$app/Src/p2_motion.c" -lm -o "$out/test_startup"
+"$out/test_startup"
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_mag_consistency.c "$app/Src/p2_motion.c" -lm -o "$out/test_mag_consistency"
+"$out/test_mag_consistency"
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_gyro_sensor.c "$app/Src/p2_sensor.c" -lm -o "$out/test_gyro_sensor"
+"$out/test_gyro_sensor"

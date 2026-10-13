@@ -197,7 +197,7 @@ tBleStatus AccGyroMag_Update(BSP_MOTION_SENSOR_Axes_t *Acc,BSP_MOTION_SENSOR_Axe
 //  Gyro->z/=100;
 
   P2_PutI16(buff+8,Gyro->x*10);
-  P2_PutI16(buff+10,Gyro->y*10);
+  P2_PutI16(buff+10,Gyro->y); /* Heading already encoded in signed tenths. */
   P2_PutI16(buff+12,Gyro->z);
 
   /* Apply Magneto calibration */
