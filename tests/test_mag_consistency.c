@@ -30,14 +30,16 @@ static P2_Vector add(P2_Vector a,P2_Vector b) {
     return (P2_Vector){a.x+b.x,a.y+b.y,a.z+b.z};
 }
 static P2_Vector magnetic(double yaw) { return body(field,yaw,0,0); }
-/* Circular error is only for moving poses/full-turn comparisons. Stationary
- * and return-to-zero acceptance must use the actual signed displayed value:
- * displaying +359 degrees is not an acceptable substitute for -1 degree. */
+/* The guideline's valid output is [0,360), so 359 degrees is a one-degree
+ * error from zero. Keep all physical limits unchanged and measure shortest
+ * circular error; feed() separately rejects any legacy signed output. */
 static double angular_error(double a,double b) { return fabs(remainder(a-b,360)); }
 static bool feed(P2_Motion *s,uint32_t now,P2_Vector a,P2_Vector rate,P2_Vector m) {
     P2_MotionGyro(s,add(rate,bias),now);
     P2_MotionAcceleration(s,a,now);
-    return P2_MotionHeading(s,m);
+    bool valid=P2_MotionHeading(s,m);
+    if(valid) assert(isfinite(s->heading_deg) && s->heading_deg>=0.0f && s->heading_deg<360.0f);
+    return valid;
 }
 static uint32_t settle(P2_Motion *s,uint32_t start,double yaw) {
     P2_MotionInit(s); P2_MotionRequireGyro(s);
@@ -45,7 +47,7 @@ static uint32_t settle(P2_Motion *s,uint32_t start,double yaw) {
     for (unsigned i=0;i<2000;i++) {
         uint32_t now=start+i*TICK_MS;
         if(feed(s,now,rest,(P2_Vector){0,0,0},magnetic(yaw))) {
-            assert(s->heading_origin_set && fabsf(s->heading_deg)<.05f);
+            assert(s->heading_origin_set && s->heading_deg==0.0f);
             return now;
         }
     }
@@ -69,9 +71,9 @@ static void finish_clean_recovery(P2_Motion *s,uint32_t now,double yaw) {
         now+=TICK_MS;
         assert(feed(s,now,rest,(P2_Vector){0,0,0},magnetic(yaw)));
         assert(s->heading_origin_deg==origin);
-        assert(fabsf(s->heading_deg)<=5);
+        assert(angular_error(s->heading_deg,0)<=5);
     }
-    assert(fabsf(s->heading_deg)<.1);
+    assert(angular_error(s->heading_deg,0)<.1);
 }
 
 static unsigned magnetic_drift_boundary_120_seconds(void) {
@@ -90,7 +92,7 @@ static unsigned magnetic_drift_boundary_120_seconds(void) {
             assert(s.heading_origin_deg==origin);
             if(valid) {
                 ++valid_count;
-                double error=fabsf(s.heading_deg);
+                double error=angular_error(s.heading_deg,0);
                 if(error>maximum) maximum=error;
                 if(error>5 && first_excess<0) first_excess=t;
             }
@@ -120,7 +122,7 @@ static void persistent_magnetic_offset(void) {
         bool valid=feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(observed));
         assert(s.heading_origin_deg==origin);
         assert(valid);
-        double e=fabsf(s.heading_deg);
+        double e=angular_error(s.heading_deg,0);
         if(e>maximum) maximum=e;
         if(!s.attitude.magnetic_accepted) ++rejected;
         if(t>=10) assert(!s.attitude.magnetic_accepted);
@@ -134,11 +136,11 @@ static void persistent_magnetic_offset(void) {
         assert(valid);
         if(s.attitude.magnetic_accepted) {
             recovered=true;
-            assert(fabsf(s.heading_deg)<=5);
+            assert(angular_error(s.heading_deg,0)<=5);
         }
     }
     assert(recovered && s.heading_valid && s.attitude.magnetic_accepted);
-    assert(fabsf(s.heading_deg)<2.5);
+    assert(angular_error(s.heading_deg,0)<2.5);
     finish_clean_recovery(&s,now,41);
     printf("PASS persistent noisy +10 deg magnetic offset: live output peak %.4f deg, %u rejected magnetic samples; clean recovery\n",
            maximum,rejected);
@@ -162,7 +164,7 @@ static void residual_bias_120_seconds(void) {
             assert(s.heading_origin_deg==origin);
             assert(s.attitude.bias.x==stored_bias.x && s.attitude.bias.y==stored_bias.y &&
                    s.attitude.bias.z==stored_bias.z);
-            double error=fabsf(s.heading_deg);
+            double error=angular_error(s.heading_deg,0);
             if(error>maximum) maximum=error;
             assert(error<=5);
         }
@@ -180,7 +182,7 @@ static void abrupt_large_magnetic_fault(void) {
             now+=TICK_MS;
             bool valid=feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(31+direction*25));
             assert(!s.attitude.magnetic_accepted);
-            assert(valid && fabsf(s.heading_deg)<.1);
+            assert(valid && angular_error(s.heading_deg,0)<.1);
             assert(s.heading_origin_deg==origin);
         }
         bool recovered=false;
@@ -191,7 +193,7 @@ static void abrupt_large_magnetic_fault(void) {
             if(i<200) assert(!s.attitude.magnetic_accepted);
             if(s.attitude.magnetic_accepted) {
                 recovered=true;
-                assert(fabsf(s.heading_deg)<.1);
+                assert(angular_error(s.heading_deg,0)<.1);
             }
         }
         assert(recovered && s.heading_valid);
@@ -219,7 +221,7 @@ static unsigned combined_boundary_120_seconds(void) {
                 assert(s.heading_origin_deg==origin);
                 if(valid) {
                     ++valid_count;
-                    double error=fabsf(s.heading_deg);
+                    double error=angular_error(s.heading_deg,0);
                     if(error>maximum) maximum=error;
                 } else if(first_invalid<0) first_invalid=t;
             }
@@ -285,10 +287,12 @@ static void recovery_blocks_are_real_samples(void) {
         P2_MotionAcceleration(&s,rest,now);
         if(i%10==0) {
             assert(P2_MotionHeading(&s,magnetic(23)) && !s.attitude.magnetic_accepted);
+            assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
             float before=s.heading_deg;
             uint32_t trusted=s.attitude.trusted_ms;
             for(unsigned repeat=0;repeat<100;repeat++) {
                 assert(P2_MotionHeading(&s,magnetic(23)) && !s.attitude.magnetic_accepted);
+                assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
                 assert(s.heading_deg==before && s.attitude.trusted_ms==trusted);
             }
         }
@@ -335,7 +339,7 @@ static void magnetic_gap_interrupts_recovery(void) {
             if(s.attitude.magnetic_accepted) recovered=true;
             assert(s.heading_origin_deg==origin);
         }
-        assert(recovered && s.heading_valid && fabsf(s.heading_deg)<=5);
+        assert(recovered && s.heading_valid && angular_error(s.heading_deg,0)<=5);
         finish_clean_recovery(&s,now,359.8);
     }
     puts("PASS mag-only gap interrupts clean recovery; circular/tick boundaries remain safe");
@@ -355,7 +359,7 @@ static void interrupted_blocks_cannot_refresh_trust(void) {
                 else a.z=1200; /* gyro still carries correct inertial tilt */
             }
             bool valid=feed(&s,now,a,(P2_Vector){0,0,0},magnetic(observed));
-            assert(valid && fabsf(s.heading_deg)<=5);
+            assert(valid && angular_error(s.heading_deg,0)<=5);
             if(i>=1000) assert(!s.attitude.magnetic_accepted);
             assert(s.heading_origin_deg==origin);
         }
@@ -371,7 +375,7 @@ static void interrupted_blocks_cannot_refresh_trust(void) {
             if(s.attitude.magnetic_accepted) recovered=true;
             assert(s.heading_origin_deg==origin);
         }
-        assert(recovered && s.heading_valid && fabsf(s.heading_deg)<=5);
+        assert(recovered && s.heading_valid && angular_error(s.heading_deg,0)<=5);
         finish_clean_recovery(&s,now,53);
     }
     puts("PASS repeated magnetic/acceleration spikes cannot keep unverified field trusted");
@@ -420,7 +424,8 @@ static void recovery_requires_continuous_fresh_sensors(void) {
      * must prevent a superficially quiet magnetic stream from restoring valid. */
     for(unsigned mode=0;mode<11;mode++) {
         P2_Motion s;
-        uint32_t now=settle(&s,mode==7 ? UINT32_MAX-9500U : 0U,359.5);
+        uint32_t boot_ms=P2_GYRO_CAL_MS+P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS;
+        uint32_t now=settle(&s,mode==7 ? UINT32_MAX-boot_ms-1500U : 0U,359.5);
         float origin=s.heading_origin_deg;
         now+=P2_GYRO_FRESH_MS+20U;
         assert(!feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(19.5)));
@@ -456,7 +461,7 @@ static void recovery_requires_continuous_fresh_sensors(void) {
             if(mode==3) m=(P2_Vector){m.x*1.8f,m.y*1.8f,m.z*1.8f};
             if(mode==4) a.z=1200;
             if(mode==5) g.z=P2_HEADING_RECOVERY_RATE_DPS+1;
-            if(mode==6) a=body(rest,19.5,5,0);
+            if(mode==6) a=body(rest,19.5,8,0); /* Beyond 5-degree handheld envelope. */
             if(mode==9) m=body((P2_Vector){335,0,0},19.5,0,0); /* implausible dip */
             if(mode==10) m=(P2_Vector){0,0,335}; /* no horizontal projection */
             P2_MotionGyro(&s,add(g,bias),now);
@@ -499,7 +504,8 @@ static void recovery_requires_continuous_fresh_sensors(void) {
 
 static void recovery_window_crosses_tick_wrap(void) {
     P2_Motion s;
-    uint32_t now=settle(&s,UINT32_MAX-9100U,359.5);
+    uint32_t boot_ms=P2_GYRO_CAL_MS+P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS;
+    uint32_t now=settle(&s,UINT32_MAX-boot_ms-1100U,359.5);
     float origin=s.heading_origin_deg;
     P2_Vector stored_bias=s.attitude.bias;
     s.steps=31; s.distance_m=21.7f;
@@ -539,7 +545,8 @@ static void asynchronous_104hz_recovery(void) {
         for(unsigned phase=0;phase<sizeof(phases_us)/sizeof(phases_us[0]);phase++) {
             P2_Motion s;
             double yaw0=phase%2 ? .5 : 359.5,turn=phase%2 ? -20 : 20;
-            uint32_t now=settle(&s,wrapping ? UINT32_MAX-9100U : 0U,yaw0);
+            uint32_t boot_ms=P2_GYRO_CAL_MS+P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS;
+            uint32_t now=settle(&s,wrapping ? UINT32_MAX-boot_ms-1100U : 0U,yaw0);
             float origin=s.heading_origin_deg;
             P2_Vector stored_bias=s.attitude.bias;
             s.steps=31; s.distance_m=21.7f;
@@ -579,7 +586,8 @@ static void asynchronous_104hz_recovery(void) {
                         assert(elapsed>=P2_HEADING_RECOVERY_MS);
                         assert(s.attitude.recovery.samples>=P2_HEADING_RECOVERY_MIN_SAMPLES);
                         assert(!s.attitude.mag_guard.reference_lost && s.attitude.ready);
-                        assert(fabsf(s.heading_deg-(float)turn)<.1f);
+                        assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
+                        assert(angular_error(s.heading_deg,turn)<.1f);
                         if(first_ready==UINT32_MAX) first_ready=elapsed;
                     }
                     assert(s.heading_origin_set && s.heading_origin_deg==origin);

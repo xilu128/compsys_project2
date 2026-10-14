@@ -17,7 +17,7 @@ typedef struct {
     P2_Vector mag_sum, acc_sum, gyro_sum, anchor_up;
     uint32_t start_ms, last_ms, block_ms, samples, block_samples, blocks, elapsed_ms;
     float anchor_angle, block_sin, block_cos, mean_min, mean_max;
-    float field_min, field_max, mean_span;
+    float field_min, field_max, mean_span, previous_mean, previous_delta;
 } P2_HeadingStartup;
 
 /* Short-window magnetic-aiding confidence. correction_deg is a wrapped
@@ -52,13 +52,11 @@ typedef struct {
     float step_rotation_forward, step_rotation_reverse;
     uint32_t step_handling_ms, step_rotation_reversal_ms, step_quiet_ms;
     bool step_rotation_axis_set, step_rotation_reversal_seen, step_handling;
-    float distance_m, heading_deg, baseline, filtered, previous;
+    float distance_m, heading_deg, baseline, filtered, previous; /* heading: [0,360). */
     uint32_t heading_last_ms;
     float heading_sin, heading_cos;
     /* Boot-session zero; preserved through invalid samples and acquisition gaps. */
     float heading_origin_deg;
-    float heading_previous_deg;
-    float heading_turns_deg; /* Current signed cycle; reset winding at reference crossings. */
     bool heading_origin_set;
     float magnetic_reference, magnetic_sum, magnetic_min, magnetic_max;
     uint32_t magnetic_count, magnetic_start_ms, magnetic_last_ms, recovery_start_ms;

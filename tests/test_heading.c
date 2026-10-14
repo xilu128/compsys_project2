@@ -2,6 +2,7 @@
  * Analytic signals are not a claim of real-world heading accuracy. */
 #include "p2_motion.h"
 #include "p2_config.h"
+#include "p2_packet.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@ static const P2_Vector level = {0,0,1000};
 static float error(float a, float b) {
     /* Compare analytic geometry after the configured reference rotation. */
     assert(isfinite(a));
+    assert(a >= 0.0f && a < 360.0f);
     float e = remainderf(a-b-P2_HEADING_OFFSET_DEG,360.0f);
     return fabsf(e);
 }
@@ -43,7 +45,10 @@ static P2_Vector in_body(P2_Vector v, float yaw, float pitch, float roll) {
 /* Wait for the explicit startup/recovery window when testing geometry. */
 static bool ready_heading(P2_Motion *s, P2_Vector m) {
     for (unsigned i=0;i<60;i++) {
-        if (P2_MotionHeading(s,m)) return true;
+        if (P2_MotionHeading(s,m)) {
+            assert(isfinite(s->heading_deg) && s->heading_deg >= 0.0f && s->heading_deg < 360.0f);
+            return true;
+        }
         if (s->heading_status != P2_HEADING_CALIBRATING &&
             s->heading_status != P2_HEADING_RECOVERING) return false;
         P2_MotionAcceleration(s,s->gravity,s->last_ms+20U);
@@ -52,11 +57,13 @@ static bool ready_heading(P2_Motion *s, P2_Vector m) {
 }
 int main(void) {
     P2_Motion s;
-    /* Regression: a complete negative/positive cycle must not poison the
-     * branch chosen when subsequently oscillating through startup zero. */
+    /* Full turns must not create history-dependent signed branches. The
+     * guideline display always maps CW +3 to 3 and CCW -3 to 357 degrees. */
     for(int direction=-1;direction<=1;direction+=2) {
         settle(&s); s.heading_origin_set=false;
         assert(ready_heading(&s,observed(137)));
+        assert(s.heading_deg == 0.0f);
+        assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status) == 0);
         for(int angle=1;angle<=363;angle++) {
             s.heading_valid=false; /* Isolate branch semantics from filter lag. */
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
@@ -67,10 +74,12 @@ int main(void) {
             s.heading_valid=false;
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(137+crossing[j])));
-            assert(fabsf(s.heading_deg-crossing[j])<.06f);
+            assert(error(s.heading_deg,crossing[j])<.06f);
+            int expected=(int)floorf(fmodf(crossing[j]+360.0f,360.0f)+.5f)%360;
+            assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==expected);
         }
     }
-    puts("PASS: full cycle then -3 -> 0 -> +3; reverse crossings and sub-resolution zero");
+    puts("PASS: full cycle then 357 -> 0 -> 3; history-independent reverse crossings and integer zero");
     /* Actual moving-tilt fixture: yaw is constant while pitch/roll oscillate
      * at 0.5 Hz. Validate while moving, not only after a long settling hold. */
     float max_dynamic_error=0.0f;
@@ -118,6 +127,7 @@ int main(void) {
     for(unsigned i=0;i<300;i++) {
         P2_MotionAcceleration(&s,tilted_g,s.last_ms+20U);
         (void)P2_MotionHeading(&s,tilted_m);
+        if(s.heading_valid) assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
     }
     assert(s.heading_valid && error(s.heading_deg,0)<.2f);
     /* +X too near vertical has no reliable horizontal heading. */
@@ -125,8 +135,8 @@ int main(void) {
     assert(!P2_MotionHeading(&s,in_body((P2_Vector){300,0,250},0,85,0)));
     printf("PASS: %u combined tilt cases, max analytic error %.5f deg; settled tilt and near-vertical rejection\n",
            tilt_cases,max_tilt_error);
-    /* Smooth two-turn traces cross +/-180 and +/-360 without wrapping.
-     * Returning along the same path returns accumulated angle to zero. */
+    /* Smooth two-turn traces wrap into [0,360). Returning along the same
+     * path returns to zero without retaining a signed cycle counter. */
     for(int sign=-1;sign<=1;sign+=2) {
         settle(&s); s.heading_origin_set=false;
         assert(ready_heading(&s,observed(137)));
@@ -134,25 +144,24 @@ int main(void) {
             float turn=sign*(i<=720 ? (float)i : 1440.0f-i);
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(137+turn)));
-            assert(error(s.heading_turns_deg,turn)<9.0f); /* intentional filter lag */
-            assert(s.heading_deg > -360.0f && s.heading_deg < 360.0f);
-            assert(error(s.heading_deg,turn)<9.0f);
+            assert(error(s.heading_deg,turn)<9.0f); /* intentional filter lag */
             if(i==360 || i==720) {
                 for(unsigned j=0;j<100;j++) {
                     P2_MotionAcceleration(&s,level,s.last_ms+20U);
                     assert(ready_heading(&s,observed(137+turn)));
                 }
-                assert(fabsf(s.heading_turns_deg)<.05f);
-                assert(s.heading_deg==0.0f);
+                assert(error(s.heading_deg,0)<.05f);
+                assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==0);
             }
         }
         for(unsigned j=0;j<100;j++) {
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(137)));
         }
-        assert(fabsf(s.heading_deg)<.05f);
+        assert(error(s.heading_deg,0)<.05f);
+        assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==0);
     }
-    puts("PASS: signed full-turn display wrap and reverse return to zero");
+    puts("PASS: unsigned full-turn display wrap and reverse return to zero");
     /* Arbitrary startup directions become zero; recovery retains that origin. */
     for (unsigned origin=0; origin<360; origin+=37) {
         settle(&s); s.heading_origin_set=false;
@@ -160,6 +169,7 @@ int main(void) {
         assert(!s.heading_origin_set);
         assert(ready_heading(&s,observed((float)origin)));
         assert(error(s.heading_deg,0)<.01f);
+        assert(s.heading_deg==0.0f);
         float saved=s.heading_origin_deg;
         const float turns[]={90,180,270,360,-90,-180,-270,-360};
         for (unsigned j=0;j<sizeof(turns)/sizeof(turns[0]);j++) {
@@ -168,6 +178,9 @@ int main(void) {
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(origin+turns[j])));
             assert(error(s.heading_deg,turns[j])<.02f);
+            const int expected[]={90,180,270,0,270,180,90,0};
+            assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==expected[j]);
+            assert(P2_HeadingWire(s.heading_deg,1,s.heading_status)==expected[j]*10);
             assert(s.heading_origin_deg==saved);
         }
         P2_MotionAcceleration(&s,(P2_Vector){NAN,0,0},s.last_ms+20U);
@@ -193,6 +206,7 @@ int main(void) {
         settle(&s);
         assert(ready_heading(&s,cardinal[i]));
         assert(error(s.heading_deg,90.0f*i)<.01f);
+        assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==(int)(90U*i));
     }
     /* Crossing north must not pass through south. */
     settle(&s); assert(ready_heading(&s,observed(359)));
@@ -270,6 +284,7 @@ int main(void) {
     }
     P2_MotionAcceleration(&s,level,2200);
     assert(P2_MotionHeading(&s,observed(0)));
+    assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
     assert(!P2_MotionHeading(&s,(P2_Vector){0,-600,500}));
     assert(s.heading_status==P2_HEADING_DISTURBED);
     for (uint32_t t=2220;t<2720;t+=20) {
@@ -285,13 +300,16 @@ int main(void) {
      * Field variation inside the sanity limits must not latch the display off. */
     settle(&s); s.magnetic_reference=0.0f;
     assert(P2_MotionHeading(&s,observed(0)));
+    assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
     for (uint32_t t=1220;t<3220;t+=20) {
         P2_MotionAcceleration(&s,level,t);
         assert(P2_MotionHeading(&s,(P2_Vector){0,-600,500}));
+        assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
     }
     assert(!P2_MotionHeading(&s,(P2_Vector){9000,0,250}));
     assert(!P2_MotionHeading(&s,(P2_Vector){0,0,250}));
     assert(P2_MotionHeading(&s,observed(90)));
+    assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
 #endif
     /* 32-bit tick rollover must retain the correct small filter interval. */
     settle(&s); s.start_ms=UINT32_MAX-3000U; s.last_ms=UINT32_MAX-10U;

@@ -22,7 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'C compilation failed' }
     & $exe
     if ($LASTEXITCODE -ne 0) { throw 'C tests failed' }
-    foreach ($name in @('test_heading','test_step_bouts','test_gait','test_handling','test_heading_calibrated','test_fusion','test_startup','test_mag_consistency','test_gyro_sensor')) {
+    foreach ($name in @('test_heading','test_step_bouts','test_gait','test_handling','test_heading_calibrated','test_fusion','test_startup','test_handheld_init','test_mag_consistency','test_gyro_sensor')) {
         $extraExe=Join-Path $out ($name+'.exe')
         $extraArgs=@()
         if ([IO.Path]::GetFileNameWithoutExtension($Compiler) -eq 'zig') { $extraArgs += 'cc' }

@@ -178,7 +178,9 @@ static void InitGyro(void) {
     Motion.heading_valid=false;
     Motion.heading_status=Motion.heading_origin_set ? P2_HEADING_RECOVERING : P2_HEADING_CALIBRATING;
     if (GyroReady) {
-        XPRINTF("P2INFO,sensor=LSM6DSM,status=ready,gyro_id=0x6A,odr_hz=104,fullscale_dps=2000,gyro_cal_ms=2000,heading_stable_ms=6000,keep_still_until=heading_valid\r\n");
+        XPRINTF("P2INFO,sensor=LSM6DSM,status=ready,gyro_id=0x6A,odr_hz=104,fullscale_dps=2000,gyro_cal_ms=%lu,heading_stable_ms=%lu,keep_still_until=heading_valid\r\n",
+            (unsigned long)P2_GYRO_CAL_MS,
+            (unsigned long)(P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS));
     } else {
         if (SensorErrors!=UINT32_MAX) ++SensorErrors;
         XPRINTF("P2ERROR,gyro_init_failed,retry_ms=%lu\r\n",(unsigned long)P2_SENSOR_RETRY_MS);
@@ -274,7 +276,8 @@ static void ProcessSensors(void) {
     }
 telemetry:
     COMP_Value.Steps = Motion.steps;
-    COMP_Value.Heading = P2_HeadingWire(Motion.heading_deg, Motion.heading_valid, Motion.heading_status);
+    /* Course variables hold true steps and heading degrees, not wire scaling. */
+    COMP_Value.Heading = P2_HeadingDisplay(Motion.heading_deg, Motion.heading_valid, Motion.heading_status);
     /* BLE distance is tenths of a metre, matching the app's /10 gyroscope scale. */
     COMP_Value.Distance = Motion.distance_m < 3276.7f ?
         (uint32_t)lroundf(Motion.distance_m * 10.0f) : 32767U;
@@ -283,11 +286,10 @@ telemetry:
         last_log = now;
         /* Integer formatting avoids enabling printf-float or changing BLE rounding.
          * Log full internal distance, not the BLE packet's saturated field. */
-        /* Bound integer conversion for long-running sessions; wire overflow
-         * is explicit, UART continues to report a much wider signed range. */
-        int32_t signed_heading10 = (int32_t)lroundf(fmaxf(-200000000.0f,
-            fminf(200000000.0f, Motion.heading_deg * 10.0f)));
-        uint32_t heading10 = (uint32_t)(signed_heading10 < 0 ? -signed_heading10 : signed_heading10);
+        /* Log the same 0..359 value as BLE/marking output. The fused internal
+         * vectors retain sub-degree precision; this rounding is display only. */
+        bool heading_display_valid = Motion.heading_valid && COMP_Value.Heading >= 0;
+        uint32_t heading10 = heading_display_valid ? (uint32_t)COMP_Value.Heading * 10U : 0U;
         double distance = Motion.distance_m;
         /* Adaptive step lengths may exceed uint32 metres at count saturation. */
         uint32_t metres = distance >= UINT32_MAX ? UINT32_MAX : (uint32_t)distance;
@@ -302,10 +304,10 @@ telemetry:
             (long)ACC_Value.x, (long)ACC_Value.y, (long)ACC_Value.z,
             (long)MAG_Value.x, (long)MAG_Value.y, (long)MAG_Value.z,
             (unsigned long)Motion.steps,
-            Motion.heading_valid && signed_heading10 < 0 ? "-" : "",
-            Motion.heading_valid ? (long)(heading10/10U) : -1L,
-            Motion.heading_valid ? (unsigned long)(heading10%10U) : 0UL,
-            (unsigned)Motion.heading_valid, (unsigned long)metres, (unsigned long)tenths,
+            "",
+            heading_display_valid ? (long)(heading10/10U) : -1L,
+            heading_display_valid ? (unsigned long)(heading10%10U) : 0UL,
+            (unsigned)heading_display_valid, (unsigned long)metres, (unsigned long)tenths,
             (unsigned long)SensorErrors,
             connected, (unsigned)(W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG) != 0),
             (unsigned long)BleErrors, (unsigned long)AccSamples, (unsigned long)MagSamples,
@@ -628,7 +630,10 @@ static void SendMotionData(void)
   bool heading_fresh=HaveAcc && HaveMag && HaveGyro &&
       now-LastGyroTick<=P2_GYRO_FRESH_MS && now-LastAccTick<=P2_ACC_FRESH_MS &&
       now-LastMagTick<=P2_MAG_FRESH_MS;
-  summary.y = P2_HeadingWire(Motion.heading_deg, Motion.heading_valid && heading_fresh,
+  /* Preserve fresh diagnostic sentinels, including nonfinite-angle failures.
+   * Stale sensors always override the cached value with unavailable. */
+  summary.y = heading_fresh && COMP_Value.Heading < 0 ? COMP_Value.Heading :
+      P2_HeadingWire((float)COMP_Value.Heading, Motion.heading_valid && heading_fresh,
       heading_fresh ? Motion.heading_status : P2_HEADING_UNAVAILABLE);
   summary.z = (int32_t)COMP_Value.Distance;
   if (AccGyroMag_Update(&acc, &summary, &mag) != BLE_STATUS_SUCCESS &&

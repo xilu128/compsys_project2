@@ -31,6 +31,8 @@ ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined 
 "$out/test_fusion"
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_startup.c "$app/Src/p2_motion.c" -lm -o "$out/test_startup"
 "$out/test_startup"
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_handheld_init.c "$app/Src/p2_motion.c" -lm -o "$out/test_handheld_init"
+"$out/test_handheld_init"
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_mag_consistency.c "$app/Src/p2_motion.c" -lm -o "$out/test_mag_consistency"
 "$out/test_mag_consistency"
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -I"$app/Inc" tests/test_gyro_sensor.c "$app/Src/p2_sensor.c" -lm -o "$out/test_gyro_sensor"
