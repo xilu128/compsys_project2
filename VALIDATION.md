@@ -1,5 +1,40 @@
 # Validation record
 
+## Current submission candidate — heading-handheld-10 — 2026-10-15
+
+Current display: startup-relative integer 0..359 degrees, clockwise positive;
+counterclockwise 90 degrees displays 270. Recovery retains startup zero,
+gyro bias and step count. Earlier signed-cycle records below are historical.
+
+- STM32CubeIDE 2.2.0 Debug build: 0 errors, 0 warnings; text 52472, data 112,
+  bss 19468 bytes. Programmed at 0x08000000 and verified with ST-LINK.
+- Flashed ELF SHA-256:
+  C5D9D12F1477CEC9980C162AA981BEDFA7610D46EC4889E8778075D6398BD6B2.
+- Default Windows host regression and four recorded motion replays passed.
+  Step thresholds and established fusion/tilt corrections were not changed.
+- 48 synthetic handheld cases: startup by 5020 ms, recovery by 2000 ms,
+  subsequent 120-second stationary deviation at most 0.7324 degrees.
+  Fixtures use bounded sinusoidal tremor, not measured human motion.
+- Separate extreme-boundary characterization: 4/6 cases still exceed +/-5
+  degrees, peak 5.1999 degrees; all output samples remained valid. This is a
+  known limit, not included in the passing default-regression claim.
+- Board UART capture handheld10_startup_recovery_20261015_071517: first valid
+  sample after reset at 5201 ms, heading zero, steps zero, sensor errors zero.
+  BLE connected/subscribed by 21001 ms without BLE errors. The operator
+  subsequently accepted handheld operation qualitatively; no measured physical
+  recovery duration or calibrated accuracy claim follows from that feedback.
+- A prior stricter-build capture first became valid at 25401 ms. These were
+  separate trials, not a controlled A/B timing comparison.
+
+Raw local captures and flash backups are deliberately outside the source ZIP.
+No new battery-only or course marking-app acceptance result is claimed.
+Full 3D magnetic calibration, broader gait/handling tests and measured distance
+remain outstanding. Firmware is unchanged during submission packaging.
+
+## Historical records
+
+The dated entries below describe older builds and are not current instructions.
+
 ## Heading update (`heading-fix-1`) — 2026-10-05, Windows
 
 Debug clean build: 0 errors / 0 warnings, text 38888, data 112, bss 18840 bytes.

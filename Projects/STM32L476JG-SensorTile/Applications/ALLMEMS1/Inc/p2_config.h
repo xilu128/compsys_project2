@@ -1,11 +1,11 @@
 #ifndef P2_CONFIG_H
 #define P2_CONFIG_H
-#define P2_FIRMWARE_VERSION "heading-demo-7"
+#define P2_FIRMWARE_VERSION "heading-handheld-10"
 /* Seven bytes fit the starter's advertising layout: project/group/revision. */
 #define P2_BLE_NAME "P202S01"
 typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 /* Sensor register axes are the body axes. Mount +X forward, +Z up.
- * Heading is clockwise relative to the first valid settled startup direction. */
+ * Heading is clockwise from startup; course display uses whole degrees 0..359. */
 #define P2_LOG_PERIOD_MS 100U /* UART telemetry only; sensor ODR remains 50 Hz. */
 #define P2_LOG_LINE_BYTES 512U
 #define P2_LOG_QUEUE_DEPTH 8U /* Bounded RAM queue; never wait for UART wire time. */
@@ -71,19 +71,24 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
 #define P2_GYRO_MAX_DPS 2000.0f /* Per axis, matching CTRL2_G and sensitivity. */
 #define P2_GYRO_CAL_MS 2000U
 #define P2_GYRO_CAL_MIN_SAMPLES 150U
-#define P2_GYRO_CAL_MAX_DPS 3.0f
-#define P2_GYRO_CAL_SPREAD_DPS 0.8f
+#define P2_GYRO_CAL_MAX_DPS 10.0f
+#define P2_GYRO_CAL_SPREAD_DPS 10.0f
+#define P2_GYRO_CAL_UP_COS_MIN 0.9986295f /* 3 degrees */
 /* Initial zero is a stable multi-sample reference, not the first mag sample.
- * Three consecutive circular block means must agree. Noise excursions are
- * allowed separately from the much stricter mean-trend threshold. */
-#define P2_STARTUP_BLOCK_MS 2000U
+ * Three consecutive one-second circular block means must agree, after the
+ * unchanged two-second gyro calibration. At 50 Hz this needs >=150 distinct
+ * magnetic observations. Bounded reversing hand tremor is allowed; persistent
+ * same-direction mean changes still reject a moving/drifting startup.
+ * Unstable data restart the window; five seconds is an ideal, not a timeout. */
+#define P2_STARTUP_BLOCK_MS 1000U
 #define P2_STARTUP_BLOCKS 3U
-#define P2_STARTUP_MIN_SAMPLES 200U
-#define P2_STARTUP_RATE_MAX_DPS 0.35f
+#define P2_STARTUP_MIN_SAMPLES 150U
+#define P2_STARTUP_RATE_MAX_DPS 6.0f
 #define P2_STARTUP_ACC_NORM_TOL_MG 40.0f
-#define P2_STARTUP_UP_COS_MIN 0.9993908f /* 2 degrees */
+#define P2_STARTUP_UP_COS_MIN 0.9961947f /* 5 degrees, bounded handheld sway */
 #define P2_STARTUP_MAG_MAX_DEG 8.0f
-#define P2_STARTUP_MEAN_SPAN_DEG 0.5f
+#define P2_STARTUP_MEAN_SPAN_DEG 1.0f
+#define P2_STARTUP_MEAN_TREND_DEG 0.125f /* Two consecutive signed block increments */
 #define P2_STARTUP_FIELD_SPAN_RATIO 0.10f
 #define P2_FUSION_ACC_FILTER_S 2.0f
 #define P2_FUSION_ACC_NORM_TOL_MG 80.0f
@@ -105,7 +110,7 @@ typedef char P2_BleNameMustBeSevenBytes[(sizeof(P2_BLE_NAME) == 8U) ? 1 : -1];
  * Preserve the original zero and steps; do not reconstruct unobserved turns. */
 #define P2_HEADING_RECOVERY_MS 2000U
 #define P2_HEADING_RECOVERY_MIN_SAMPLES 80U
-#define P2_HEADING_RECOVERY_RATE_DPS 3.0f
+#define P2_HEADING_RECOVERY_RATE_DPS 15.0f
 #define P2_HEADING_RECOVERY_STRENGTH_RATIO 0.50f
 #define P2_HEADING_RECOVERY_DIP_DEG 30.0f
 #define P2_MOTION_FILTER_S 0.06f

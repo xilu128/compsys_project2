@@ -2,6 +2,7 @@
  * Synthetic acceptance is not proof of hardware accuracy or field immunity. */
 #include "p2_motion.h"
 #include "p2_config.h"
+#include "p2_packet.h"
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -27,7 +28,13 @@ static bool feed(P2_Motion *s, uint32_t now, P2_Vector a,
                  P2_Vector raw_rate, P2_Vector m) {
     P2_MotionGyro(s, raw_rate, now);
     P2_MotionAcceleration(s, a, now);
-    return P2_MotionHeading(s, m);
+    bool valid=P2_MotionHeading(s, m);
+    if(valid) {
+        assert(isfinite(s->heading_deg) && s->heading_deg>=0.0f && s->heading_deg<360.0f);
+        int display=P2_HeadingDisplay(s->heading_deg,1,s->heading_status);
+        assert(display>=0 && display<=359);
+    }
+    return valid;
 }
 static uint32_t window_ms(void) {
     return P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS;
@@ -63,13 +70,105 @@ static uint32_t await_ready(P2_Motion *s, uint32_t now, double yaw,
         now += TICK_MS;
         if (feed(s, now, rest, raw_bias, magnetic(yaw))) {
             assert(s->attitude.ready && s->heading_origin_set);
-            assert(fabsf(s->heading_deg) < .05f);
+            assert(s->heading_deg == 0.0f);
+            assert(P2_HeadingDisplay(s->heading_deg,1,s->heading_status)==0);
             return now;
         }
         pending(s);
     }
     assert(!"stable magnetic startup timed out");
     return now;
+}
+
+static void cold_boot_asynchronous_clocks(void) {
+    /* Match the independent sensor ODRs, not a synchronous 100 Hz shortcut.
+     * This exercises the entire cold path: two-second gyro bias acquisition,
+     * then three fresh magnetic blocks; no pre-calibrated state is injected. */
+    const uint32_t phases_us[]={1000U,3500U,9200U,13500U,19900U};
+    unsigned earliest=UINT32_MAX,latest=0;
+    for(unsigned wrapping=0;wrapping<2;wrapping++)
+        for(unsigned noisy=0;noisy<2;noisy++)
+            for(unsigned phase=0;phase<sizeof(phases_us)/sizeof(phases_us[0]);phase++) {
+                P2_Motion s;
+                P2_MotionInit(&s); P2_MotionRequireGyro(&s);
+                s.mag_bias=(P2_Vector){0,0,0}; s.mag_scale=(P2_Vector){1,1,1};
+                uint32_t base=wrapping ? UINT32_MAX-2500U : 0U;
+                uint32_t calibrated_at=UINT32_MAX,first_ready=UINT32_MAX;
+                uint64_t gyro_us=0,mag_us=phases_us[phase];
+                unsigned gyro_count=0,mag_count=0;
+                while(first_ready==UINT32_MAX && gyro_us<8000000U && mag_us<8000000U) {
+                    if(gyro_us<=mag_us) {
+                        uint32_t elapsed=(uint32_t)(gyro_us/1000U);
+                        P2_MotionGyro(&s,bias,base+elapsed);
+                        if(s.attitude.calibrated && calibrated_at==UINT32_MAX) {
+                            calibrated_at=elapsed;
+                            assert(elapsed>=P2_GYRO_CAL_MS);
+                            assert(s.attitude.count>=P2_GYRO_CAL_MIN_SAMPLES);
+                        }
+                        gyro_us=(uint64_t)++gyro_count*1000000U/104U;
+                    } else {
+                        uint32_t elapsed=(uint32_t)(mag_us/1000U);
+                        P2_MotionAcceleration(&s,rest,base+elapsed);
+                        double yaw=359.9+(noisy ? (mag_count%2 ? .8 : -.8) : 0);
+                        bool valid=P2_MotionHeading(&s,magnetic(yaw));
+                        if(valid) {
+                            assert(calibrated_at!=UINT32_MAX);
+                            assert(elapsed>=calibrated_at+window_ms());
+                            assert(s.attitude.startup.blocks>=P2_STARTUP_BLOCKS);
+                            assert(s.attitude.startup.samples>=P2_STARTUP_MIN_SAMPLES);
+                            assert(s.heading_origin_set && s.heading_deg==0.0f);
+                            assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==0);
+                            assert(angular_error(s.heading_origin_deg,359.9)<.05);
+                            assert(fabsf(s.attitude.bias.x-bias.x)<.0001f);
+                            assert(fabsf(s.attitude.bias.y-bias.y)<.0001f);
+                            assert(fabsf(s.attitude.bias.z-bias.z)<.0001f);
+                            first_ready=elapsed;
+                            if(wrapping) assert(base+elapsed<base);
+                        } else assert(!s.heading_origin_set && !s.attitude.ready);
+                        assert(s.steps==0 && s.distance_m==0.0f);
+                        ++mag_count;
+                        mag_us+=20000U;
+                    }
+                }
+                unsigned minimum=P2_GYRO_CAL_MS+window_ms();
+                assert(first_ready>=minimum && first_ready<=minimum+200U);
+                assert(gyro_count>2U*mag_count);
+                if(first_ready<earliest)earliest=first_ready;
+                if(first_ready>latest)latest=first_ready;
+            }
+    printf("PASS cold boot 104/50 Hz, five phases, quiet/+/-0.8 deg noise and timer wrap: first valid %u..%u ms; first display exactly zero\n",
+           earliest,latest);
+}
+
+static void sustained_moving_boot_is_not_forced(void) {
+    P2_Motion s;
+    P2_MotionInit(&s); P2_MotionRequireGyro(&s);
+    s.mag_bias=(P2_Vector){0,0,0}; s.mag_scale=(P2_Vector){1,1,1};
+    uint32_t now=0;
+    /* A slow constant turn may look like bias to a gyro alone. Its coherent
+     * magnetic trend must prevent zero acquisition well beyond ideal latency. */
+    for(unsigned i=0;i<=1200;i++) {
+        now=i*TICK_MS;
+        double yaw=20+.2*i*.01;
+        assert(!feed(&s,now,rest,add(bias,(P2_Vector){0,0,.2f}),magnetic(yaw)));
+        assert(!s.heading_origin_set && !s.attitude.ready);
+    }
+    now=await_ready(&s,now,22.4,bias);
+    assert(angular_error(s.heading_origin_deg,22.4)<.05);
+    /* Stopping a below-threshold slow turn need not reset every partial block.
+     * Report the retained bias rather than claiming exact stationary bias;
+     * the published two-minute drift target still applies after acquisition. */
+    double residual=s.attitude.bias.z-bias.z,peak=0;
+    float origin=s.heading_origin_deg;
+    for(unsigned i=0;i<12000;i++) {
+        now+=TICK_MS;
+        assert(feed(&s,now,rest,bias,magnetic(22.4)));
+        double error=angular_error(s.heading_deg,0);
+        if(error>peak)peak=error;
+        assert(error<=5 && s.heading_origin_deg==origin && s.steps==0);
+    }
+    printf("PASS 12 s slow moving boot cannot force ready; after stopping bias residual %.5f dps, 120 s peak %.4f deg\n",
+           residual,peak);
 }
 
 static void first_sample_outlier(void) {
@@ -93,8 +192,8 @@ static void first_sample_outlier(void) {
 static void magnetic_ramp(void) {
     P2_Motion s;
     uint32_t now = warm_gyro(&s, 100);
-    /* Magnetic direction changes without any actual rotation. Consecutive
-     * block means differ by 1 degree, above the 0.5-degree startup limit. */
+    /* Magnetic direction changes without actual rotation at 0.5 degree/s.
+     * Its trend exceeds the configured circular block-mean span limit. */
     for (unsigned i=0; i<=2000; ++i) {
         now += TICK_MS;
         assert(!feed(&s, now, rest, bias, magnetic(37+.005*i)));
@@ -140,7 +239,7 @@ static void duplicates_and_interrupted_windows(void) {
     for (unsigned mode=0; mode<7; ++mode) {
         P2_Motion s;
         uint32_t now = warm_gyro(&s, 100);
-        for (unsigned i=0; i<400; ++i) {
+        for (unsigned i=0; i<2U*window_ms()/(3U*TICK_MS); ++i) {
             now += TICK_MS;
             assert(!feed(&s, now, rest, bias, magnetic(31)));
             pending(&s);
@@ -162,8 +261,8 @@ static void duplicates_and_interrupted_windows(void) {
         P2_Vector a = rest, g = bias, m = magnetic(31);
         if (mode==0) g.z += 10;
         if (mode==1) a.z += 150;
-        if (mode==2) a = (P2_Vector){(float)(1000*sin(5*rad)), 0,
-                                                (float)(1000*cos(5*rad))};
+        if (mode==2) a = (P2_Vector){(float)(1000*sin(8*rad)), 0,
+                                                (float)(1000*cos(8*rad))};
         if (mode==4) m = (P2_Vector){m.x*1.3f, m.y*1.3f, m.z*1.3f};
         if (mode==5) m.x = NAN;
         assert(!feed(&s, now, a, g, m));
@@ -215,7 +314,7 @@ static void inertial_interruption_between_magnetic_samples(void) {
     for (unsigned mode=0; mode<2; ++mode) {
         P2_Motion s;
         uint32_t now = warm_gyro(&s, 0);
-        for (unsigned i=0; i<400; ++i) {
+        for (unsigned i=0; i<2U*window_ms()/(3U*TICK_MS); ++i) {
             now += TICK_MS;
             assert(!feed(&s, now, rest, bias, magnetic(31)));
         }
@@ -289,6 +388,8 @@ static void pedometer_independence(void) {
 }
 
 int main(void) {
+    cold_boot_asynchronous_clocks();
+    sustained_moving_boot_is_not_forced();
     first_sample_outlier();
     magnetic_ramp();
     circular_mean_and_tick_wrap();

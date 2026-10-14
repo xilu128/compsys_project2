@@ -10,6 +10,7 @@
 static void near(float actual, float expected, float eps) { assert(fabsf(actual-expected) < eps); }
 static void heading_near(float actual, float expected, float eps) {
     assert(isfinite(actual));
+    assert(actual >= 0.0f && actual < 360.0f);
     float difference = remainderf(actual-expected-P2_HEADING_OFFSET_DEG,360.0f);
     assert(fabsf(difference) < eps);
 }
@@ -43,7 +44,10 @@ static int32_t wm(uint16_t r,uint8_t *d,uint16_t n) { memcpy(mr+r,d,n);return 0;
 /* Wait for the explicit startup/recovery window when testing geometry. */
 static bool ready_heading(P2_Motion *s, P2_Vector m) {
     for (unsigned i=0;i<60;i++) {
-        if (P2_MotionHeading(s,m)) return true;
+        if (P2_MotionHeading(s,m)) {
+            assert(isfinite(s->heading_deg) && s->heading_deg >= 0.0f && s->heading_deg < 360.0f);
+            return true;
+        }
         if (s->heading_status != P2_HEADING_CALIBRATING &&
             s->heading_status != P2_HEADING_RECOVERING) return false;
         P2_MotionAcceleration(s,s->gravity,s->last_ms+20U);
@@ -51,16 +55,34 @@ static bool ready_heading(P2_Motion *s, P2_Vector m) {
     return false;
 }
 int main(void) {
-    assert(P2_HeadingWire(-1.0f,1,1)==-10);
-    assert(P2_HeadingWire(-0.1f,1,1)==-1);
-    assert(P2_HeadingWire(-720.0f,1,1)==-7200);
-    assert(P2_HeadingWire(720.0f,1,1)==7200);
-    assert(P2_HeadingWire(3200.0f,1,1)==32000);
-    assert(P2_HeadingWire(-3200.0f,1,1)==-32000);
-    assert(P2_HeadingWire(3201.0f,1,1)==-32764);
-    assert(P2_HeadingWire(-3201.0f,1,1)==-32764);
-    for(unsigned status=1;status<=4;status++)
+    /* Exact public values, not circular comparisons: signed legacy output
+     * would otherwise pass a geometry-only test despite violating the rubric. */
+    const float inputs[]={0,90,-90,180,-180,270,-270,360,-360,720,-720,
+                          -1,-.1f,.49f,.5f,359.49f,359.5f,359.9f,3200,-3200};
+    const int expected[]={0,90,270,180,180,270,90,0,0,0,0,
+                          359,0,0,1,359,0,0,320,40};
+    for(unsigned i=0;i<sizeof(inputs)/sizeof(inputs[0]);i++) {
+        int display=P2_HeadingDisplay(inputs[i],1,1);
+        assert(display==expected[i] && display>=0 && display<=359);
+        assert(P2_HeadingWire(inputs[i],1,1)==expected[i]*10);
+    }
+    for(unsigned status=1;status<=4;status++) {
+        assert(P2_HeadingDisplay(0.0f,0,status)==-32769+(int)status);
         assert(P2_HeadingWire(0.0f,0,status)==-32769+(int)status);
+    }
+    const float nonfinite[]={NAN,INFINITY,-INFINITY};
+    for(unsigned i=0;i<sizeof(nonfinite)/sizeof(nonfinite[0]);i++) {
+        assert(P2_HeadingDisplay(nonfinite[i],1,1)==-32764);
+        assert(P2_HeadingWire(nonfinite[i],1,1)==-32764);
+    }
+    /* A wide input sweep verifies normalization, integer rounding and the
+     * BLE tenths-unit compatibility scale without changing field offsets. */
+    for(int tenths=-14400;tenths<=14400;tenths++) {
+        float degrees=tenths*.1f;
+        int display=P2_HeadingDisplay(degrees,1,1);
+        assert(display>=0 && display<=359);
+        assert(P2_HeadingWire(degrees,1,1)==display*10);
+    }
     P2_Motion s;
     settle(&s);
     for (unsigned t=2000;t<62000;t+=20)
@@ -85,6 +107,7 @@ int main(void) {
     const P2_Vector mag[]={{300,0,-400},{0,300,-400},{-300,0,-400},{0,-300,-400}};
     for (unsigned i=0;i<4;++i) {
         settle(&s); assert(ready_heading(&s,mag[i])); heading_near(s.heading_deg,(float)((360U-90U*i)%360U),0.01f);
+        assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==(int)((360U-90U*i)%360U));
     }
     /* Analytic 30-degree pitch: north and gravity rotate together. */
     settle(&s); s.gravity=(P2_Vector){-500,0,866.0254f};

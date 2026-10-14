@@ -4,6 +4,7 @@
  * P2_MotionGyro, after the documented sensor-frame/handedness conversion. */
 #include "p2_motion.h"
 #include "p2_config.h"
+#include "p2_packet.h"
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -37,7 +38,13 @@ static void basis_ok(const P2_Motion *s) {
 static bool feed(P2_Motion *s,uint32_t now,P2_Vector a,P2_Vector g,P2_Vector m) {
     P2_MotionGyro(s,plus(g,bias),now);
     P2_MotionAcceleration(s,a,now);
-    return P2_MotionHeading(s,m);
+    bool valid=P2_MotionHeading(s,m);
+    if(valid) {
+        assert(isfinite(s->heading_deg) && s->heading_deg>=0.0f && s->heading_deg<360.0f);
+        int display=P2_HeadingDisplay(s->heading_deg,1,s->heading_status);
+        assert(display>=0 && display<=359);
+    }
+    return valid;
 }
 static uint32_t settle(P2_Motion *s,uint32_t start,double yaw,double pitch,double roll) {
     P2_MotionInit(s);P2_MotionRequireGyro(s);
@@ -45,13 +52,14 @@ static uint32_t settle(P2_Motion *s,uint32_t start,double yaw,double pitch,doubl
     for(unsigned i=0;i<=1000;i++) {
         bool valid=feed(s,start+10U*i,body((P2_Vector){0,0,1000},yaw,pitch,roll),
             (P2_Vector){0,0,0},body(field,yaw,pitch,roll));
-        if(i<800) assert(!valid);
+        if(i*10U<P2_GYRO_CAL_MS+P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS) assert(!valid);
     }
     assert(s->attitude.calibrated && s->attitude.ready && s->heading_valid);
     assert(fabsf(s->attitude.bias.x-bias.x)<.00001f);
     assert(fabsf(s->attitude.bias.y-bias.y)<.00001f);
     assert(fabsf(s->attitude.bias.z-bias.z)<.00001f);
-    assert(s->heading_origin_set && fabsf(s->heading_deg)<.05f);
+    assert(s->heading_origin_set && angular_error(s->heading_deg,0)<.05f);
+    assert(P2_HeadingDisplay(s->heading_deg,1,s->heading_status)==0);
     basis_ok(s);
     return start+10000U;
 }
@@ -135,11 +143,17 @@ static void vertical_and_turns(void) {
             assert(feed(&s,now+i*10U,(P2_Vector){0,0,1000},
                 (P2_Vector){0,0,sign*90.0f},body(field,yaw,0,0)));
             assert(angular_error(s.heading_deg,yaw-137)<.06);
-            if(i%400==0)assert(fabsf(s.heading_deg)<.05f);
+            if(i%100==0) {
+                int expected=(sign*(int)(i/100U)*90)%360;
+                if(expected<0)expected+=360;
+                assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==expected);
+                assert(P2_HeadingWire(s.heading_deg,1,s.heading_status)==expected*10);
+            }
+            if(i%400==0)assert(angular_error(s.heading_deg,0)<.05f);
         }
         now+=8000;
     }
-    puts("PASS fusion near-vertical invalidity/return and signed full-turn zero");
+    puts("PASS fusion near-vertical invalidity/return; CW 90=90, CCW 90=270, full-turn zero");
 }
 
 static void time_and_startup(void) {
@@ -250,9 +264,12 @@ static void high_rate_turns_and_variable_field(void) {
             assert(!s.attitude.mag_guard.reference_lost);
             assert(angular_error(s.heading_deg,turn)<.1);
             if(!s.attitude.magnetic_accepted) ++rejected;
-            if(i%(samples/2)==0) assert(fabsf(s.heading_deg)<.05f);
+            if(i%(samples/2)==0) {
+                assert(angular_error(s.heading_deg,0)<.05f);
+                assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==0);
+            }
         }
-        assert(rejected>0 && fabsf(s.heading_deg)<.05f);
+        assert(rejected>0 && angular_error(s.heading_deg,0)<.05f);
     }
     P2_Motion s; uint32_t now=settle(&s,0,0,0,0);
     P2_Vector rate={1500,1500,0};
@@ -281,7 +298,7 @@ static void high_rate_turns_and_variable_field(void) {
         P2_MotionGyro(&endpoint,raw,now+20);
         assert(!endpoint.heading_valid && endpoint.attitude.mag_guard.reference_lost);
     }
-    puts("PASS 600/1000 dps signed full turns, +/-25% field variation and per-axis gyro range");
+    puts("PASS 600/1000 dps unsigned full turns, +/-25% field variation and per-axis gyro range");
 }
 
 int main(void) {

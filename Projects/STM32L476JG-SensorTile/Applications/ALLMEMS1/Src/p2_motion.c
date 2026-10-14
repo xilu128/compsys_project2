@@ -76,12 +76,13 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
         reset_startup(f);
     }
     if (!f->calibrated) {
-        /* Two continuous stationary seconds. Never estimate bias from a
-         * moving startup or let duplicate calls satisfy this window. */
+        /* Two continuous bounded-motion seconds. This provisional bias is
+         * confirmed/refined by the magnetic window before publishing zero.
+         * Small reversing hand tremor is allowed, not large deliberate turns. */
         if (!s->initialized || now-s->last_ms>P2_ACC_FRESH_MS ||
             f->acc_norm<850.0f || f->acc_norm>1150.0f ||
             speed>P2_GYRO_CAL_MAX_DPS) { f->count=0U; return; }
-        if (f->count && (dot3(unit(f->acc),unit(f->calibration_acc))<0.9993908f ||
+        if (f->count && (dot3(unit(f->acc),unit(f->calibration_acc))<P2_GYRO_CAL_UP_COS_MIN ||
             fabsf(f->acc_norm-norm(f->calibration_acc))>40.0f ||
             fmaxf(f->high.x,rate.x)-fminf(f->low.x,rate.x)>P2_GYRO_CAL_SPREAD_DPS ||
             fmaxf(f->high.y,rate.y)-fminf(f->low.y,rate.y)>P2_GYRO_CAL_SPREAD_DPS ||
@@ -156,12 +157,17 @@ static bool startup_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t no
     q->block_sin+=sinf(radians); q->block_cos+=cosf(radians);
     if (now-q->block_ms<P2_STARTUP_BLOCK_MS) return false;
     float mean=atan2f(q->block_sin,q->block_cos)*57.295779513f;
+    float delta=mean-q->previous_mean;
+    bool trend=q->blocks>=2U && delta*q->previous_delta>0.0f &&
+        fabsf(delta)>P2_STARTUP_MEAN_TREND_DEG &&
+        fabsf(q->previous_delta)>P2_STARTUP_MEAN_TREND_DEG;
+    q->previous_mean=mean; q->previous_delta=delta;
     if (!q->blocks) q->mean_min=q->mean_max=mean;
     q->mean_min=fminf(q->mean_min,mean); q->mean_max=fmaxf(q->mean_max,mean);
     q->mean_span=q->mean_max-q->mean_min;
     ++q->blocks;
     q->block_ms=now; q->block_samples=0U; q->block_sin=q->block_cos=0.0f;
-    if (q->mean_span>P2_STARTUP_MEAN_SPAN_DEG) { reset_startup(f); return false; }
+    if (q->mean_span>P2_STARTUP_MEAN_SPAN_DEG || trend) { reset_startup(f); return false; }
     if (q->blocks<P2_STARTUP_BLOCKS || q->samples<P2_STARTUP_MIN_SAMPLES) return false;
     float k=1.0f/q->samples;
     P2_Vector averaged=times(q->mag_sum,k), gravity=times(q->acc_sum,k);
@@ -717,32 +723,12 @@ filter_heading:;
     if (!s->heading_origin_set) {
         s->heading_origin_deg = absolute_heading;
         s->heading_origin_set = true;
-        s->heading_previous_deg = absolute_heading;
-        s->heading_deg = 0.0f;
-        s->heading_turns_deg = 0.0f;
     }
-    /* Unwrap successive angles. Sampling must observe less than 180 degrees
-     * per interval. After missing data only the shortest endpoint change is
-     * recoverable; complete turns during the outage cannot be reconstructed. */
-    float delta = wrap(absolute_heading - s->heading_previous_deg + 180.0f) - 180.0f;
-    /* Keep only the current signed cycle, not lifetime winding. Otherwise
-     * -363 -> -357 would display -3 -> -357 instead of -3 -> +3. */
-    s->heading_turns_deg = fmodf(s->heading_turns_deg + delta, 360.0f);
-    float relative = wrap(absolute_heading - s->heading_origin_deg + 180.0f) - 180.0f;
-    float previous_relative = wrap(s->heading_previous_deg - s->heading_origin_deg + 180.0f) - 180.0f;
-    /* Detect actual reference crossings, even when no sample equals zero.
-     * Restrict to the zero half-plane so crossing 180 cannot reset the cycle. */
-    if ((fabsf(relative) < 90.0f && fabsf(previous_relative) < 90.0f &&
-         ((relative >= 0.0f && previous_relative <= 0.0f) ||
-          (relative <= 0.0f && previous_relative >= 0.0f))) ||
-        fabsf(relative) < 0.05f)
-        s->heading_turns_deg = relative;
-    s->heading_deg = s->heading_turns_deg;
-    /* Match 0.1-degree telemetry resolution at the full-turn boundary.
-     * This is display rounding, not a claim that physical error is zero. */
-    if (fabsf(s->heading_deg) >= 359.95f || fabsf(s->heading_deg) < 0.05f)
-        s->heading_deg = 0.0f;
-    s->heading_previous_deg = absolute_heading;
+    /* Course interview convention is position modulo one turn, not signed
+     * winding: CW 90 -> 90, CCW 90 -> 270, independent of the route taken.
+     * Keep sub-degree precision here; only the external display is rounded.
+     * Fusion, startup stability and pedometer state are deliberately unchanged. */
+    s->heading_deg = wrap(absolute_heading - s->heading_origin_deg);
     s->heading_valid = true;
     return true;
 }
