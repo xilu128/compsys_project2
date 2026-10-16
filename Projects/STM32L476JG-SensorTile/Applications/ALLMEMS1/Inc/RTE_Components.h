@@ -17,13 +17,11 @@
   *
   ******************************************************************************
   */
-  /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef  __RTE_COMPONENTS_H__
-#define  __RTE_COMPONENTS_H__ 
 
-/* Defines ------------------------------------------------------------------*/
+#ifndef  __RTE_COMPONENTS_H__
+#define  __RTE_COMPONENTS_H__
+
 #define HCI_TL
 #define HCI_TL_INTERFACE
-//#define SENSOR_DEMO 
- 
-#endif /* __RTE_COMPONENTS_H__ */
+
+#endif

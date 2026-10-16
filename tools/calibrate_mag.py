@@ -100,7 +100,7 @@ def estimate(samples):
         raise ValueError("Implausible fitted radius; collect full 3D rotations")
     directions = [tuple((p[i]-centre[i])*span[i]/radius[i] for i in range(3))
                   for p in points]
-    # Require all octants and both ends of each axis, not only a tilted circle.
+
     octants = {tuple(v >= 0 for v in p) for p in directions}
     if len(octants) < 8 or any(sum(sign*p[i] > .8 for p in directions) < 3
                              for i in range(3) for sign in (-1, 1)):

@@ -18,7 +18,6 @@
   ******************************************************************************
   */
 
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef STM32L4_HAL_EXTI_H
 #define STM32L4_HAL_EXTI_H
 
@@ -26,58 +25,30 @@
 extern "C" {
 #endif
 
-/* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal.h"
 
-/** @addtogroup STM32F4xx_HAL_Driver
-  * @{
-  */
-
-/** @defgroup EXTI EXTI
-  * @brief EXTI HAL module driver
-  * @{
-  */
-/* Exported types ------------------------------------------------------------*/
-
-/** @defgroup EXTI_Exported_Types EXTI Exported Types
-  * @{
-  */
 typedef enum
 {
   HAL_EXTI_COMMON_CB_ID          = 0x00U,
 #ifdef EXTI_IMR1_IM0
   HAL_EXTI_RISING_CB_ID          = 0x01U,
-  HAL_EXTI_FALLING_CB_ID         = 0x02U,  
+  HAL_EXTI_FALLING_CB_ID         = 0x02U,
 #endif
 }EXTI_CallbackIDTypeDef;
 
-/**
-  * @brief  EXTI Handle structure definition
-  */
 typedef struct
 {
-  uint32_t Line;                    /*!<  Exti line number */
+  uint32_t Line;
 #ifdef EXTI_IMR1_IM0
-  void (* RisingCallback) (void);   /*!<  Exti rising callback */
-  void (* FallingCallback) (void);  /*!<  Exti falling callback */
-#else  
-  void (* Callback) (void);         /*!<  Exti common callback */
-#endif  
+  void (* RisingCallback) (void);
+  void (* FallingCallback) (void);
+#else
+  void (* Callback) (void);
+#endif
 }EXTI_HandleTypeDef;
 
-/**
-  * @}
-  */
-
-/* Exported constants --------------------------------------------------------*/
-/** @defgroup EXTI_Exported_Constants EXTI Exported Constants
-  * @{
-  */
 #define HAL_EXTI_DELIVERED 1
 
-/** @defgroup EXTI_Line  EXTI Mode
-  * @{
-  */
 #define EXTI_LINE_0                         (EXTI_GPIO   | 0x00u)
 #define EXTI_LINE_1                         (EXTI_GPIO   | 0x01u)
 #define EXTI_LINE_2                         (EXTI_GPIO   | 0x02u)
@@ -95,35 +66,15 @@ typedef struct
 #define EXTI_LINE_14                        (EXTI_GPIO   | 0x0Eu)
 #define EXTI_LINE_15                        (EXTI_GPIO   | 0x0Fu)
 
-/**
-  * @}
-  */
-
-/** @defgroup EXTI_Mode  EXTI Mode
-  * @{
-  */
 #define EXTI_MODE_NONE                      0x00000000u
 #define EXTI_MODE_INTERRUPT                 0x00000001u
 #define EXTI_MODE_EVENT                     0x00000002u
-/**
-  * @}
-  */
 
-/** @defgroup EXTI_Trigger  EXTI Trigger
-  * @{
-  */
 #define EXTI_TRIGGER_NONE                   0x00000000u
 #define EXTI_TRIGGER_RISING                 0x00000001u
 #define EXTI_TRIGGER_FALLING                0x00000002u
 #define EXTI_TRIGGER_RISING_FALLING         (EXTI_TRIGGER_RISING | EXTI_TRIGGER_FALLING)
-/**
-  * @}
-  */
 
-/** @defgroup EXTI_GPIOSel  EXTI GPIOSel
-  * @brief
-  * @{
-  */
 #define EXTI_GPIOA                          0x00000000u
 #define EXTI_GPIOB                          0x00000001u
 #define EXTI_GPIOC                          0x00000002u
@@ -133,32 +84,7 @@ typedef struct
 #define EXTI_GPIOG                          0x00000006u
 #define EXTI_GPIOH                          0x00000007u
 #define EXTI_GPIOI                          0x00000008u
-/**
-  * @}
-  */
 
-/**
-  * @}
-  */
-
-/* Exported macro ------------------------------------------------------------*/
-/** @defgroup EXTI_Exported_Macros EXTI Exported Macros
-  * @{
-  */
-
-/**
-  * @}
-  */
-
-/* Private constants --------------------------------------------------------*/
-/** @defgroup EXTI_Private_Constants EXTI Private Constants
-  * @{
-  */
-    
-   
-/**
-  * @brief  EXTI Line property definition
-  */
 #define EXTI_PROPERTY_SHIFT                  24u
 #define EXTI_DIRECT                         (0x01u << EXTI_PROPERTY_SHIFT)
 #define EXTI_CONFIG                         (0x02u << EXTI_PROPERTY_SHIFT)
@@ -166,34 +92,14 @@ typedef struct
 #define EXTI_RESERVED                       (0x08u << EXTI_PROPERTY_SHIFT)
 #define EXTI_PROPERTY_MASK                  (EXTI_DIRECT | EXTI_CONFIG | EXTI_GPIO)
 
-    /**
-  * @brief  EXTI Line number
-  */
 #define EXTI_LINE_NB                        16u
-    
-/**
-  * @brief  EXTI Register and bit usage
-  */
+
 #define EXTI_PIN_MASK                       0x1Fu
 
-/**
-  * @brief  EXTI Mask for interrupt & event mode
-  */
 #define EXTI_MODE_MASK                      (EXTI_MODE_EVENT | EXTI_MODE_INTERRUPT)
 
-/**
-  * @brief  EXTI Mask for trigger possibilities
-  */
 #define EXTI_TRIGGER_MASK                   (EXTI_TRIGGER_RISING | EXTI_TRIGGER_FALLING)
 
-/**
-  * @}
-  */
-
-/* Private macros ------------------------------------------------------------*/
-/** @defgroup EXTI_Private_Macros EXTI Private Macros
-  * @{
-  */
 #define IS_EXTI_LINE(__LINE__)          (((((__LINE__) & EXTI_PROPERTY_MASK) == EXTI_DIRECT) || \
                                          (((__LINE__) & EXTI_PROPERTY_MASK) == EXTI_CONFIG)   || \
                                          (((__LINE__) & EXTI_PROPERTY_MASK) == EXTI_GPIO))    && \
@@ -209,54 +115,13 @@ typedef struct
                                          ((__PORT__) == EXTI_GPIOH) || \
                                          ((__PORT__) == EXTI_GPIOI))
 
-/**
-  * @}
-  */
-  
-
-/* Exported functions --------------------------------------------------------*/
-/** @defgroup EXTI_Exported_Functions EXTI Exported Functions
- *  @brief    EXTI Exported Functions
-  * @{
-  */
-
-/** @defgroup EXTI_Exported_Functions_Group1 Configuration functions
- *  @brief    Configuration functions
- * @{
- */
-/* Configuration functions ****************************************************/
 HAL_StatusTypeDef HAL_EXTI_RegisterCallback(EXTI_HandleTypeDef *hexti, EXTI_CallbackIDTypeDef CallbackID, void (*pPendingCbfn)(void));
 HAL_StatusTypeDef HAL_EXTI_GetHandle(EXTI_HandleTypeDef *hexti, uint32_t ExtiLine);
-/**
-  * @}
-  */
 
-/** @defgroup EXTI_Exported_Functions_Group2 IO operation functions
- *  @brief    IO operation functions
- * @{
- */
-/* IO operation functions *****************************************************/
 void              HAL_EXTI_IRQHandler(EXTI_HandleTypeDef *hexti);
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* STM32L4_HAL_EXTI_H */
-
-
+#endif

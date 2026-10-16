@@ -18,36 +18,15 @@
   ******************************************************************************
   */
 
-/* Includes ------------------------------------------------------------------*/
 #include <stdio.h>
 #include "TargetFeatures.h"
 
 #ifdef ALLMEMS1_MOTIONCP
 
-/* Imported Variable -------------------------------------------------------------*/
 extern float sensitivity_Mul;
 
-/* exported Variable -------------------------------------------------------------*/
 MCP_output_t CarryPositionCode = MCP_UNKNOWN;
 
-
-/* Private defines -----------------------------------------------------------*/
-
-/** @addtogroup  Drv_Sensor      Drv_Sensor
-  * @{
-  */
-
-/** @addtogroup Drv_MotionCP    Drv_MotionCP
-  * @{
-  */   
-
-/* Exported Functions --------------------------------------------------------*/
-/**
-* @brief  Run carry position algorithm. This function collects and scale data 
-* from accelerometer and calls the Carry Position Algo
-* @param  BSP_MOTION_SENSOR_AxesRaw_t ACC_Value_Raw Acceleration values (x,y,z)
-* @retval None
-*/
 void MotionCP_manager_run(BSP_MOTION_SENSOR_AxesRaw_t ACC_Value_Raw)
 {
   MCP_input_t iDataIN;
@@ -55,20 +34,15 @@ void MotionCP_manager_run(BSP_MOTION_SENSOR_AxesRaw_t ACC_Value_Raw)
   iDataIN.AccX = ACC_Value_Raw.x * sensitivity_Mul;
   iDataIN.AccY = ACC_Value_Raw.y * sensitivity_Mul;
   iDataIN.AccZ = ACC_Value_Raw.z * sensitivity_Mul;
-  
+
   MotionCP_Update(&iDataIN, &CarryPositionCode);
 }
 
-/**
-* @brief  Initialises MotionCP algorithm
-* @param  None
-* @retval None
-*/
 void MotionCP_manager_init(void)
 {
   char LibVersion[36];
   char acc_orientation[3];
-  
+
   MotionCP_Initialize();
   MotionCP_GetLibVersion(LibVersion);
 
@@ -82,13 +56,4 @@ void MotionCP_manager_init(void)
   ALLMEMS1_PRINTF("Initialized %s\r\n", LibVersion);
 }
 
-/**
- * @}
- */ /* end of group  Drv_MotionCP        Drv_MotionCP*/
-
-/**
- * @}
- */ /* end of group Drv_Sensor          Drv_Sensor*/
-
-#endif /*  ALLMEMS1_MOTIONCP */
-
+#endif

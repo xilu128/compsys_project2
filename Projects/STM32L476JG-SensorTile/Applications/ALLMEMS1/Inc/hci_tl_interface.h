@@ -6,8 +6,8 @@
   * @date    07-Feb-2022
   * @brief : This file contains all the functions prototypes for the STM32
   *          BlueNRG-MS HCI Transport Layer interface
-  *		     This file must be moved in the application folder by the user 
-  *		     and renamed 'hci_tl_interface'		   
+  *		     This file must be moved in the application folder by the user
+  *		     and renamed 'hci_tl_interface'
   ******************************************************************************
   * @attention
   *
@@ -21,7 +21,6 @@
   ******************************************************************************
   */
 
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __SENSORTILE_BLUENRG_H
 #define __SENSORTILE_BLUENRG_H
 
@@ -29,11 +28,7 @@
  extern "C" {
 #endif
 
-/* Includes ------------------------------------------------------------------*/
 #include "SensorTile_conf.h"
-
-//extern volatile uint32_t HCI_ProcessEvent;   
-/* Exported Defines ----------------------------------------------------------*/
 
 #define HCI_TL_SPI_EXTI_PORT  GPIOC
 #define HCI_TL_SPI_EXTI_PIN   GPIO_PIN_5
@@ -48,32 +43,17 @@
 #define HCI_TL_RST_PORT       GPIOH
 #define HCI_TL_RST_PIN        GPIO_PIN_0
 
-/* Exported Functions --------------------------------------------------------*/
 int32_t HCI_TL_SPI_Init    (void* pConf);
 int32_t HCI_TL_SPI_DeInit  (void);
 int32_t HCI_TL_SPI_Receive (uint8_t* buffer, uint16_t size);
 int32_t HCI_TL_SPI_Send    (uint8_t* buffer, uint16_t size);
 int32_t HCI_TL_SPI_Reset   (void);
 
-/**
- * @brief  Register hci_tl_interface IO bus services
- *
- * @param  None
- * @retval None
- */
 void hci_tl_lowlevel_init(void);
 
-/**
- * @brief HCI Transport Layer Low Level Interrupt Service Routine
- *
- * @param  None
- * @retval None
- */
 void hci_tl_lowlevel_isr(void);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* __SENSORTILE_BLUENRG_H */
-
-
+#endif

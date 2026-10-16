@@ -7,7 +7,7 @@ static float norm(P2_Vector v) { return sqrtf(v.x*v.x + v.y*v.y + v.z*v.z); }
 static float wrap(float x) {
     x = fmodf(x, 360.0f);
     if (x < 0.0f) x += 360.0f;
-    /* Tiny negative differences can round to exactly 360 in float. */
+
     return x >= 360.0f ? 0.0f : x;
 }
 
@@ -18,7 +18,7 @@ static P2_Vector cross3(P2_Vector a, P2_Vector b) {
 static P2_Vector times(P2_Vector v, float k) { return (P2_Vector){v.x*k,v.y*k,v.z*k}; }
 static P2_Vector unit(P2_Vector v) { return times(v,1.0f/fmaxf(norm(v),0.000001f)); }
 static float clamp1(float x) { return fmaxf(-1.0f,fminf(1.0f,x)); }
-/* Rodrigues rotation. Same rigid rotation MUST act on up and north. */
+
 static P2_Vector rotate(P2_Vector v, P2_Vector axis, float angle) {
     float c=cosf(angle), sn=sinf(angle), d=dot3(axis,v)*(1.0f-c);
     P2_Vector cv=cross3(axis,v);
@@ -45,10 +45,7 @@ void P2_MotionRequireGyro(P2_Motion *s) {
     s->heading_valid=false;
 }
 P2_Vector P2_GyroToBody(P2_Vector native) {
-    /* ST's SensorTile MotionFX_Manager: LSM6DSM gyro wsu, LSM303AGR mag swu.
-     * Polar coordinates swap X/Y. Angular velocity is AXIAL: det(P)*P*w,
-     * hence negate all three after swapping. A plain swap reverses transport.
-     * Physical single-axis correlation remains a hardware acceptance test. */
+
     return (P2_Vector){-native.y,-native.x,-native.z};
 }
 void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
@@ -56,7 +53,7 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
     float speed=norm(rate);
     uint32_t elapsed=now-f->last_ms;
     bool gap=!f->seen || elapsed>P2_GYRO_FRESH_MS;
-    /* Full scale is specified independently for each sensor axis. */
+
     if (!isfinite(speed) || fabsf(rate.x)>P2_GYRO_MAX_DPS ||
         fabsf(rate.y)>P2_GYRO_MAX_DPS || fabsf(rate.z)>P2_GYRO_MAX_DPS) {
         if (s->heading_origin_set) f->mag_guard.reference_lost=true;
@@ -76,9 +73,7 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
         reset_startup(f);
     }
     if (!f->calibrated) {
-        /* Two continuous bounded-motion seconds. This provisional bias is
-         * confirmed/refined by the magnetic window before publishing zero.
-         * Small reversing hand tremor is allowed, not large deliberate turns. */
+
         if (!s->initialized || now-s->last_ms>P2_ACC_FRESH_MS ||
             f->acc_norm<850.0f || f->acc_norm>1150.0f ||
             speed>P2_GYRO_CAL_MAX_DPS) { f->count=0U; return; }
@@ -104,14 +99,12 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
     rate=(P2_Vector){rate.x-f->bias.x,rate.y-f->bias.y,rate.z-f->bias.z};
     f->residual_rate=rate;
     f->rate=norm(rate);
-    /* Gyro is faster than the magnetometer: an intervening motion sample
-     * must interrupt the quiet window even if the next magnetic call is calm. */
+
     if (!f->ready && f->rate>(f->field_norm<=0.0f ? P2_STARTUP_RATE_MAX_DPS :
                               P2_HEADING_RECOVERY_RATE_DPS)) reset_startup(f);
     if (!f->ready || gap) return;
     if (f->rate>0.000001f) {
-        /* A world-fixed vector expressed in the moving body follows
-         * dv/dt = v x omega, hence the NEGATIVE body rotation. */
+
         P2_Vector axis=times(rate,1.0f/f->rate);
         float angle=-f->rate*elapsed*0.00001745329252f;
         f->up=rotate(f->up,axis,angle);
@@ -120,9 +113,6 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
     }
 }
 
-/* Establish the FIRST reference from the same quiet window for magnetic field,
- * gravity and gyro bias. Block means detect warm-up convergence without treating
- * ordinary magnetometer sample noise as rotation. Never run after acquiring zero. */
 static bool startup_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t now) {
     P2_HeadingStartup *q=&f->startup;
     if (q->samples && now==q->last_ms) return false;
@@ -180,7 +170,7 @@ static bool startup_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t no
     f->residual_rate=(P2_Vector){f->raw_rate.x-f->bias.x,f->raw_rate.y-f->bias.y,f->raw_rate.z-f->bias.z};
     f->rate=norm(f->residual_rate);
     f->trusted_ms=now; f->ready=true; f->recovering=false;
-    f->mag_guard.verified_ms=now; /* The complete boot window is trusted. */
+    f->mag_guard.verified_ms=now;
     return true;
 }
 
@@ -189,8 +179,7 @@ static void correct_tilt(P2_Motion *s, P2_Vector a, float magnitude, float dt) {
     if (!f->ready) return;
     P2_Vector observed=times(a,1.0f/magnitude);
     float cosine=dot3(f->up,observed);
-    /* Linear acceleration is NOT gravity. Reject large innovations/norm
-     * changes; let gyro carry tilt instead of chasing each swing impulse. */
+
     if (fabsf(magnitude-f->rest_norm)>P2_FUSION_ACC_NORM_TOL_MG ||
         cosine<P2_FUSION_ACC_COS_MIN) return;
     P2_Vector axis=cross3(f->up,observed);
@@ -218,8 +207,7 @@ static bool magnetic_consistent(P2_MagneticGuard *g, float innovation, uint32_t 
     if (!g->samples) g->start_ms=now;
     g->last_ms=now;
     g->seen=true;
-    /* Compare with the running attitude, not an indefinitely integrated boot
-     * witness. Residual gyro bias must remain correctable throughout a run. */
+
     float residual=remainderf(innovation,360.0f)*.01745329252f;
     g->sin_sum+=sinf(residual); g->cos_sum+=cosf(residual); ++g->samples;
     if (now-g->start_ms>=P2_MAG_GUARD_BLOCK_MS && g->samples>=P2_MAG_GUARD_MIN_SAMPLES) {
@@ -230,14 +218,10 @@ static bool magnetic_consistent(P2_MagneticGuard *g, float innovation, uint32_t 
         if (!g->blocked) g->verified_ms=now;
         guard_interrupt(g);
     }
-    /* Fragmented windows must not grant unlimited trust. A full clean block,
-     * not occasional individually plausible samples, renews this evidence. */
+
     return !g->blocked && now-g->verified_ms<=P2_MAG_GUARD_BLOCK_MS+P2_MAG_FRESH_MS;
 }
 
-/* A lost interval cannot be integrated retroactively. Reacquire a stable
- * magnetic endpoint automatically, preserving the user's original boot zero.
- * This does not recover full revolutions made while sensor data were missing. */
 static bool recover_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t now) {
     P2_HeadingStartup *q=&f->recovery;
     if (q->samples && now==q->last_ms) return false;
@@ -279,9 +263,6 @@ static bool recover_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t no
     return true;
 }
 
-/* Magnetic yaw correction is bounded and cannot overwrite inertial tilt.
- * A rejected field disables magnetic aiding, not the live gyro estimate.
- * True inertial loss requires fresh, stable reacquisition; never freeze data. */
 static bool fused_heading(P2_Motion *s, P2_Vector m, float *degrees) {
     P2_Attitude *f=&s->attitude;
     uint32_t now=f->last_ms;
@@ -319,11 +300,10 @@ static bool fused_heading(P2_Motion *s, P2_Vector m, float *degrees) {
         if (plausible)
             plausible=magnetic_consistent(&f->mag_guard,f->innovation_deg,now);
         else guard_reject(&f->mag_guard);
-        /* Gyro-transported tilt remains available during linear acceleration.
-         * Its correction veto must not erase valid magnetic-consistency evidence. */
+
         plausible=plausible && fabsf(f->acc_norm-f->rest_norm)<=P2_FUSION_ACC_NORM_TOL_MG;
         if (plausible) {
-            /* Timestamp freshness, not call count. First seed needs no correction. */
+
             uint32_t ms=now-s->heading_last_ms;
             float dt=just_seeded || ms>P2_SAMPLE_GAP_MS ? 0.0f : ms*.001f;
             float limit=P2_FUSION_MAG_CORRECTION_DPS*.01745329252f*dt;
@@ -342,7 +322,6 @@ static bool fused_heading(P2_Motion *s, P2_Vector m, float *degrees) {
     return true;
 }
 
-/* Discard unconfirmed motion, but preserve already published steps. */
 static void reset_bout(P2_Motion *s) {
     s->pending_steps = 0U;
     s->pending_distance_m = 0.0f;
@@ -374,7 +353,7 @@ bool P2_MotionSetStride(P2_Motion *s, P2_StrideModel m) {
 static float step_length(const P2_Motion *s, uint32_t interval) {
     if (!s->stride.adaptive || interval == 0U) return s->stride.fixed_m;
     float hz = 1000.0f/interval;
-    /* Do not extrapolate outside the measured calibration range. */
+
     if (hz < s->stride.min_hz || hz > s->stride.max_hz) return s->stride.fixed_m;
     return s->stride.intercept_m + s->stride.slope_m_per_hz*hz;
 }
@@ -383,8 +362,7 @@ static void add_steps(P2_Motion *s, uint32_t count, float distance) {
     uint32_t accepted = count > UINT32_MAX-s->steps ? UINT32_MAX-s->steps : count;
     if (accepted == 0U) return;
     s->steps += accepted;
-    /* Compensated sum avoids repeated float rounding at ordinary walk lengths.
-     * At count saturation, accept only the corresponding fraction of a bout. */
+
     float increment = distance*((float)accepted/count) - s->distance_compensation;
     float total = s->distance_m + increment;
     s->distance_compensation = (total-s->distance_m)-increment;
@@ -395,31 +373,27 @@ static void accept_candidate(P2_Motion *s, uint32_t now) {
     uint32_t interval = now - s->peak_ms;
     bool weak = s->previous < P2_STEP_HIGH_MG;
     float cadence_ratio = (weak || s->weak_bout) ? P2_STEP_WEAK_CADENCE_RATIO : P2_STEP_CADENCE_RATIO;
-    /* Cadence consistency confirms startup only. During established walking,
-     * hand motion can produce unequal intervals without ending the bout.
-     * Stop/gap handling and amplitude/refractory checks remain in Acceleration. */
+
     if (!s->have_peak) {
         s->weak_bout = weak;
         s->pending_steps = 1U;
-        s->pending_distance_m = 0.0f; /* First interval not known yet. */
+        s->pending_distance_m = 0.0f;
     } else if (s->walking) {
-        /* Allow cadence changes once walking is established. */
+
         add_steps(s, 1U, step_length(s, interval));
     } else {
-        /* Two adjacent intervals must agree before the first three candidates
-         * become steps. Irregular handling starts a fresh confirmation window. */
+
         bool consistent = s->candidate_interval_ms == 0U ||
             ((float)interval <= s->candidate_interval_ms * cadence_ratio &&
              (float)s->candidate_interval_ms <= interval * cadence_ratio);
         float length = step_length(s, interval);
-        /* Infer the first step from the first observed interval. After an
-         * inconsistent cadence, retain only the latest pair and its distance. */
+
         if (!consistent || s->pending_steps == 1U) s->pending_distance_m = 2.0f*length;
         else s->pending_distance_m += length;
         s->pending_steps = consistent ? s->pending_steps + 1U : 2U;
         s->weak_bout = consistent ? (s->weak_bout || weak) : weak;
         if (s->pending_steps >= (s->weak_bout ? P2_STEP_WEAK_CONFIRM_COUNT : P2_STEP_CONFIRM_COUNT)) {
-            add_steps(s, s->pending_steps, s->pending_distance_m); /* Backfill, do not lose startup steps. */
+            add_steps(s, s->pending_steps, s->pending_distance_m);
             s->pending_steps = 0U;
             s->pending_distance_m = 0.0f;
             s->walking = true;
@@ -441,10 +415,7 @@ void P2_MotionInit(P2_Motion *s) {
     s->mag_bias = (P2_Vector){P2_MAG_BIAS_X, P2_MAG_BIAS_Y, P2_MAG_BIAS_Z};
     s->mag_scale = (P2_Vector){P2_MAG_SCALE_X, P2_MAG_SCALE_Y, P2_MAG_SCALE_Z};
 }
-/* Detect a large direction sweep followed by a real reversal. Mere tilt or
- * continuous rotation does not veto magnitude-based steps. Normalizing before
- * filtering avoids conflating ordinary vertical walking acceleration with
- * orientation change. This is handling rejection, not an activity classifier. */
+
 static bool step_handling(P2_Motion *s, P2_Vector a, float magnitude,
                           float dt, uint32_t now) {
     float alpha=dt/(P2_STEP_DIRECTION_FILTER_S+dt);
@@ -503,9 +474,7 @@ static bool step_handling(P2_Motion *s, P2_Vector a, float magnitude,
         }
     }
     if (s->step_handling) {
-        /* Missing a reversal in a compound 3D swing is not proof it stopped.
-         * Release only after direction stays in a small cone. This still
-         * permits modest walking sway; no perfectly motionless wait is needed. */
+
         P2_Vector q=s->step_quiet_direction, d=s->step_direction;
         if (q.x*d.x+q.y*d.y+q.z*d.z<P2_STEP_HANDLING_QUIET_COS) {
             s->step_quiet_direction=d;
@@ -527,14 +496,13 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
         reset_bout(s);
         s->heading_valid = false;
         s->heading_status = P2_HEADING_UNAVAILABLE;
-        /* Discard the old gravity estimate after a drop/impact/invalid sample.
-         * A new magnetic sample must not make that old estimate valid again. */
+
         s->initialized = false;
         s->attitude.ready=s->attitude.recovering=false;
         reset_startup(&s->attitude);
         return;
     }
-    uint32_t elapsed = now - s->last_ms; /* unsigned arithmetic handles tick wrap */
+    uint32_t elapsed = now - s->last_ms;
     if (!s->attitude.ready && s->attitude.field_norm<=0.0f && s->attitude.startup.samples &&
         (fabsf(magnitude-s->attitude.rest_norm)>P2_STARTUP_ACC_NORM_TOL_MG ||
          dot3(times(a,1.0f/magnitude),s->attitude.startup.anchor_up)<P2_STARTUP_UP_COS_MIN))
@@ -569,8 +537,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     s->last_ms = now;
     if (s->have_peak && now - s->peak_ms > P2_STEP_MAX_MS) reset_bout(s);
     float slow = dt / (P2_GRAVITY_FILTER_S + dt);
-    /* Heading needs current tilt, not the slow magnitude baseline used by
-     * the pedometer. These vector updates never feed step detection. */
+
     float tilt = dt / (P2_TILT_FILTER_S + dt);
     if (s->attitude.required && s->attitude.ready) {
         correct_tilt(s,a,magnitude,dt);
@@ -597,14 +564,13 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
                       fminf(P2_STEP_HIGH_MG,0.45f*s->step_envelope));
     float low = -fmaxf(P2_STEP_TROUGH_FLOOR_MG,
                       fminf(-P2_STEP_LOW_MG,0.20f*s->step_envelope));
-    /* Require a trough followed by a positive falling peak, plus refractory time.
-     * Magnitude makes counting independent of the fixed mounting orientation. */
+
     if (s->filtered < low) {
         if (!s->armed || s->filtered < s->step_trough) s->step_trough = s->filtered;
         s->armed = true;
         s->trough_ms = now;
     }
-    /* Do not pair an isolated trough with an unrelated motion much later. */
+
     if (s->armed && now - s->trough_ms > P2_TROUGH_TIMEOUT_MS) s->armed = false;
     if (s->armed && s->previous > high && s->filtered < s->previous &&
         s->previous-s->step_trough >= P2_STEP_PROMINENCE_MG &&
@@ -616,7 +582,7 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
     bool was_valid = s->heading_valid;
     s->heading_valid = false;
     s->heading_status = P2_HEADING_UNAVAILABLE;
-    /* Any invalid observation interrupts reference/recovery confirmation. */
+
     uint32_t prior_count = s->magnetic_count;
     bool prior_recovery = s->recovery_active;
     s->magnetic_count = 0U;
@@ -637,14 +603,12 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
     if (!isfinite(mn) || !isfinite(gn) || mn < P2_MAG_MIN_MGAUSS || mn > P2_MAG_MAX_MGAUSS ||
         gn < P2_GRAVITY_MIN_MG || gn > P2_GRAVITY_MAX_MG) return false;
     P2_Vector up = {s->gravity.x/gn, s->gravity.y/gn, s->gravity.z/gn};
-    /* Project body +X and magnetic field onto the horizontal plane. */
+
     float dot = m.x*up.x + m.y*up.y + m.z*up.z;
     P2_Vector north = {m.x-dot*up.x, m.y-dot*up.y, m.z-dot*up.z};
     float horizontal = norm(north);
     if (horizontal < P2_HORIZONTAL_MIN_MGAUSS || fabsf(up.x) > P2_FORWARD_VERTICAL_LIMIT) return false;
-    /* Provisional XY correction cannot establish rotation-invariant strength.
-     * Only use reference/recovery rejection with validated full calibration.
-     * Raw sanity, gravity and projection checks above always remain active. */
+
     if (P2_MAG_CALIBRATED) {
         uint32_t now = s->last_ms;
         bool gap = !s->magnetic_seen || now - s->magnetic_last_ms > P2_MAG_FRESH_MS;
@@ -671,8 +635,7 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
             if (now - s->magnetic_start_ms < P2_MAG_REFERENCE_MS) return false;
             s->magnetic_reference = s->magnetic_sum / s->magnetic_count;
         }
-        /* Never learn a sustained disturbance as the new normal. Strength alone
-         * cannot detect direction-only interference or contaminated startup. */
+
         if (fabsf(mn - s->magnetic_reference) >
                 P2_MAG_RELATIVE_CHANGE_MAX * s->magnetic_reference) {
             s->magnetic_blocked = true;
@@ -690,14 +653,11 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
             s->magnetic_blocked = s->recovery_active = false;
         }
     }
-    /* Signed horizontal component in the register-axis basis. The explicit
-     * board yaw convention is verified separately from this projection. */
+
     float east_x = north.y*up.z - north.z*up.y;
     heading = wrap(P2_HEADING_SIGN * atan2f(east_x, north.x)*57.295779513f + P2_HEADING_OFFSET_DEG);
 filter_heading:;
-    /* Average unit vectors, not degree values: 359/1 degrees must average at
-     * north, never south. Invalid input above is immediately invalid; after
-     * invalidity/gaps seed from the new observation, not an old output. */
+
     float radians = heading * 0.01745329252f;
     uint32_t elapsed = s->last_ms - s->heading_last_ms;
     float sn = sinf(radians), cs = cosf(radians);
@@ -709,8 +669,7 @@ filter_heading:;
         float alpha = dt / (P2_HEADING_FILTER_S + dt);
         s->heading_sin += alpha * (sn - s->heading_sin);
         s->heading_cos += alpha * (cs - s->heading_cos);
-        /* An abrupt ~180-degree change can cancel the vectors. Re-seed rather
-         * than publish atan2(0,0). Normal smooth rotations never need this. */
+
         if (s->heading_sin*s->heading_sin + s->heading_cos*s->heading_cos < 0.0001f) {
             s->heading_sin = sn;
             s->heading_cos = cs;
@@ -718,16 +677,12 @@ filter_heading:;
     }
     s->heading_last_ms = s->last_ms;
     float absolute_heading = wrap(atan2f(s->heading_sin, s->heading_cos)*57.295779513f);
-    /* Only the first valid, settled observation sets zero. Recovery must not
-     * silently redefine the user's original startup direction. */
+
     if (!s->heading_origin_set) {
         s->heading_origin_deg = absolute_heading;
         s->heading_origin_set = true;
     }
-    /* Course interview convention is position modulo one turn, not signed
-     * winding: CW 90 -> 90, CCW 90 -> 270, independent of the route taken.
-     * Keep sub-degree precision here; only the external display is rounded.
-     * Fusion, startup stability and pedometer state are deliberately unchanged. */
+
     s->heading_deg = wrap(absolute_heading - s->heading_origin_deg);
     s->heading_valid = true;
     return true;

@@ -1,5 +1,5 @@
-/* Independent magnetic/inertial-consistency regression fixtures.
- * Sensor data are analytic, not a claim of hardware accuracy. */
+
+
 #include "p2_motion.h"
 #include "p2_config.h"
 #include <assert.h>
@@ -30,9 +30,7 @@ static P2_Vector add(P2_Vector a,P2_Vector b) {
     return (P2_Vector){a.x+b.x,a.y+b.y,a.z+b.z};
 }
 static P2_Vector magnetic(double yaw) { return body(field,yaw,0,0); }
-/* The guideline's valid output is [0,360), so 359 degrees is a one-degree
- * error from zero. Keep all physical limits unchanged and measure shortest
- * circular error; feed() separately rejects any legacy signed output. */
+
 static double angular_error(double a,double b) { return fabs(remainder(a-b,360)); }
 static bool feed(P2_Motion *s,uint32_t now,P2_Vector a,P2_Vector rate,P2_Vector m) {
     P2_MotionGyro(s,add(rate,bias),now);
@@ -64,9 +62,7 @@ static uint32_t reject_magnetic_field(P2_Motion *s,uint32_t now,double yaw) {
 }
 static void finish_clean_recovery(P2_Motion *s,uint32_t now,double yaw) {
     float origin=s->heading_origin_deg;
-    /* Correction is intentionally rate-limited. The immediate recovery bound
-     * is not a permanent accuracy allowance: after sufficient clean input,
-     * retain the original strict ideal-input return-to-zero requirement. */
+
     for(unsigned i=0;i<4000;i++) {
         now+=TICK_MS;
         assert(feed(s,now,rest,(P2_Vector){0,0,0},magnetic(yaw)));
@@ -116,8 +112,7 @@ static void persistent_magnetic_offset(void) {
         now+=TICK_MS;
         double t=i*.01;
         double observed=51+(i%2 ? 1 : -1);
-        /* Brief samples near the inertial reference do not prove the field
-         * recovered. The complete block remains overwhelmingly inconsistent. */
+
         if(t>110 && i%17==0) observed=41;
         bool valid=feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(observed));
         assert(s.heading_origin_deg==origin);
@@ -201,9 +196,6 @@ static void abrupt_large_magnetic_fault(void) {
     puts("PASS abrupt +/-25 deg magnetic aiding rejection preserves live gyro heading");
 }
 
-/* Deliberately exercise the boundary combination, rather than inferring it
- * from separate gyro-bias and magnetic-drift tests. Failed cases remain failures;
- * the +/-5-degree acceptance is not expanded to make a parameter set pass. */
 static unsigned combined_boundary_120_seconds(void) {
     unsigned failures=0;
     for(int magnetic_sign=-1;magnetic_sign<=1;magnetic_sign+=2)
@@ -279,8 +271,7 @@ static void recovery_blocks_are_real_samples(void) {
     uint32_t now=settle(&s,0,23);
     now=reject_magnetic_field(&s,now,23);
     uint32_t start=now;
-    /* Only 10 unique magnetic samples/s: repeated calls must not manufacture
-     * the minimum sample population needed for a clean two-second block. */
+
     for(unsigned i=1;i<=210;i++) {
         now+=TICK_MS;
         P2_MotionGyro(&s,bias,now);
@@ -320,8 +311,7 @@ static void magnetic_gap_interrupts_recovery(void) {
             assert(feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(359.8)));
             assert(!s.attitude.magnetic_accepted);
         }
-        /* Gyro continuity is intact: this is a magnetic gap only. It must
-         * restart the recovery block, not permanently lose inertial truth. */
+
         for(unsigned i=0;i<P2_MAG_FRESH_MS/TICK_MS+10U;i++) {
             now+=TICK_MS;
             P2_MotionGyro(&s,bias,now);
@@ -355,16 +345,15 @@ static void interrupted_blocks_cannot_refresh_trust(void) {
             P2_Vector a=rest;
             double observed=63+(i%2 ? 1 : -1);
             if(i%100==0) {
-                if(mode==0) observed=143; /* hard magnetic innovation */
-                else a.z=1200; /* gyro still carries correct inertial tilt */
+                if(mode==0) observed=143;
+                else a.z=1200;
             }
             bool valid=feed(&s,now,a,(P2_Vector){0,0,0},magnetic(observed));
             assert(valid && angular_error(s.heading_deg,0)<=5);
             if(i>=1000) assert(!s.attitude.magnetic_accepted);
             assert(s.heading_origin_deg==origin);
         }
-        /* Acceleration gating must not erase independently observable
-         * magnetic disagreement while continuous gyro preserves attitude. */
+
         if(mode==1) assert(s.attitude.mag_guard.blocked);
         bool recovered=false;
         for(unsigned i=1;i<=450;i++) {
@@ -420,8 +409,7 @@ static void lost_inertial_reference_recovers(void) {
 }
 
 static void recovery_requires_continuous_fresh_sensors(void) {
-    /* No gyro data, too few unique mag samples, and every interruption below
-     * must prevent a superficially quiet magnetic stream from restoring valid. */
+
     for(unsigned mode=0;mode<11;mode++) {
         P2_Motion s;
         uint32_t boot_ms=P2_GYRO_CAL_MS+P2_STARTUP_BLOCK_MS*P2_STARTUP_BLOCKS;
@@ -434,7 +422,7 @@ static void recovery_requires_continuous_fresh_sensors(void) {
             assert(!feed(&s,now,rest,(P2_Vector){0,0,0},magnetic(19.5)));
         }
         if(mode==0) {
-            /* Gyro loss cannot be repaired by continued acc/mag alone. */
+
             for(unsigned i=0;i<300;i++) {
                 now+=TICK_MS;
                 P2_MotionAcceleration(&s,rest,now);
@@ -447,8 +435,7 @@ static void recovery_requires_continuous_fresh_sensors(void) {
                 P2_MotionAcceleration(&s,rest,now);
             }
         } else if(mode==8) {
-            /* Acceleration freshness is independent of gyro freshness. Keep
-             * this gap below the pedometer's 250 ms restart threshold. */
+
             for(unsigned i=0;i<15;i++) {
                 now+=TICK_MS;
                 P2_MotionGyro(&s,bias,now);
@@ -461,13 +448,12 @@ static void recovery_requires_continuous_fresh_sensors(void) {
             if(mode==3) m=(P2_Vector){m.x*1.8f,m.y*1.8f,m.z*1.8f};
             if(mode==4) a.z=1200;
             if(mode==5) g.z=P2_HEADING_RECOVERY_RATE_DPS+1;
-            if(mode==6) a=body(rest,19.5,8,0); /* Beyond 5-degree handheld envelope. */
-            if(mode==9) m=body((P2_Vector){335,0,0},19.5,0,0); /* implausible dip */
-            if(mode==10) m=(P2_Vector){0,0,335}; /* no horizontal projection */
+            if(mode==6) a=body(rest,19.5,8,0);
+            if(mode==9) m=body((P2_Vector){335,0,0},19.5,0,0);
+            if(mode==10) m=(P2_Vector){0,0,335};
             P2_MotionGyro(&s,add(g,bias),now);
             P2_MotionAcceleration(&s,a,now);
-            /* A transient gyro/accel event between magnetometer calls must
-             * also interrupt recovery; no mag call at mode 4/5/6 impulse. */
+
             if(mode<4 || mode>=9) assert(!P2_MotionHeading(&s,m));
         }
         uint32_t clean_start=now+TICK_MS;
@@ -535,10 +521,7 @@ static void recovery_window_crosses_tick_wrap(void) {
 }
 
 static void asynchronous_104hz_recovery(void) {
-    /* Independent event clocks: actual 104 Hz periods produce alternating
-     * 9/10 ms HAL timestamps, not a convenient simultaneous 100 Hz feed.
-     * Acceleration and magnetic data are sampled together at 50 Hz, with
-     * several nonzero phase offsets from the gyro schedule. */
+
     const uint32_t phases_us[]={1000U,3500U,9200U,13500U,19900U};
     unsigned earliest=UINT32_MAX,latest=0;
     for(unsigned wrapping=0;wrapping<2;wrapping++)

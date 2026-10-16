@@ -1,5 +1,5 @@
-/* Independent deterministic fixtures for the boot-only heading reference.
- * Synthetic acceptance is not proof of hardware accuracy or field immunity. */
+
+
 #include "p2_motion.h"
 #include "p2_config.h"
 #include "p2_packet.h"
@@ -44,8 +44,7 @@ static void pending(const P2_Motion *s) {
     assert(!s->attitude.ready);
     assert(s->heading_status == P2_HEADING_CALIBRATING);
 }
-/* Isolate magnetic startup from the first gyro-bias calibration: no magnetic
- * heading is supplied until the gyro calibration has actually completed. */
+
 static uint32_t warm_gyro(P2_Motion *s, uint32_t start) {
     P2_MotionInit(s);
     P2_MotionRequireGyro(s);
@@ -81,9 +80,7 @@ static uint32_t await_ready(P2_Motion *s, uint32_t now, double yaw,
 }
 
 static void cold_boot_asynchronous_clocks(void) {
-    /* Match the independent sensor ODRs, not a synchronous 100 Hz shortcut.
-     * This exercises the entire cold path: two-second gyro bias acquisition,
-     * then three fresh magnetic blocks; no pre-calibrated state is injected. */
+
     const uint32_t phases_us[]={1000U,3500U,9200U,13500U,19900U};
     unsigned earliest=UINT32_MAX,latest=0;
     for(unsigned wrapping=0;wrapping<2;wrapping++)
@@ -145,8 +142,7 @@ static void sustained_moving_boot_is_not_forced(void) {
     P2_MotionInit(&s); P2_MotionRequireGyro(&s);
     s.mag_bias=(P2_Vector){0,0,0}; s.mag_scale=(P2_Vector){1,1,1};
     uint32_t now=0;
-    /* A slow constant turn may look like bias to a gyro alone. Its coherent
-     * magnetic trend must prevent zero acquisition well beyond ideal latency. */
+
     for(unsigned i=0;i<=1200;i++) {
         now=i*TICK_MS;
         double yaw=20+.2*i*.01;
@@ -155,9 +151,7 @@ static void sustained_moving_boot_is_not_forced(void) {
     }
     now=await_ready(&s,now,22.4,bias);
     assert(angular_error(s.heading_origin_deg,22.4)<.05);
-    /* Stopping a below-threshold slow turn need not reset every partial block.
-     * Report the retained bias rather than claiming exact stationary bias;
-     * the published two-minute drift target still applies after acquisition. */
+
     double residual=s.attitude.bias.z-bias.z,peak=0;
     float origin=s.heading_origin_deg;
     for(unsigned i=0;i<12000;i++) {
@@ -192,8 +186,7 @@ static void first_sample_outlier(void) {
 static void magnetic_ramp(void) {
     P2_Motion s;
     uint32_t now = warm_gyro(&s, 100);
-    /* Magnetic direction changes without actual rotation at 0.5 degree/s.
-     * Its trend exceeds the configured circular block-mean span limit. */
+
     for (unsigned i=0; i<=2000; ++i) {
         now += TICK_MS;
         assert(!feed(&s, now, rest, bias, magnetic(37+.005*i)));
@@ -234,8 +227,7 @@ static void circular_mean_and_tick_wrap(void) {
 }
 
 static void duplicates_and_interrupted_windows(void) {
-    /* Independent interruptions: rotation, translation, tilt with unchanged
-     * norm, gyro gap, field strength, invalid field, and magnetometer outage. */
+
     for (unsigned mode=0; mode<7; ++mode) {
         P2_Motion s;
         uint32_t now = warm_gyro(&s, 100);
@@ -250,7 +242,7 @@ static void duplicates_and_interrupted_windows(void) {
         assert(memcmp(&before, &s.attitude, sizeof(before)) == 0);
         pending(&s);
         if (mode==6) {
-            /* Fresh inertial data must not conceal a missing magnetometer. */
+
             for (unsigned i=0; i<P2_MAG_FRESH_MS/TICK_MS+10U; ++i) {
                 now += TICK_MS;
                 P2_MotionGyro(&s, bias, now);
@@ -282,8 +274,7 @@ static void duplicates_and_interrupted_windows(void) {
 static void bias_refinement_and_slow_rotation(void) {
     P2_Motion s;
     uint32_t now = warm_gyro(&s, 0);
-    /* Gyro settles a little more after its first two-second calibration.
-     * Below the stationary-rate limit, but enough to drift several degrees. */
+
     P2_Vector settled_bias = {.55f, -.33f, 1.02f};
     now = await_ready(&s, now, 170, settled_bias);
     assert(fabsf(s.attitude.bias.x-settled_bias.x) < .003f);
@@ -299,7 +290,7 @@ static void bias_refinement_and_slow_rotation(void) {
     double peak = 0;
     for (unsigned i=1; i<=6000; ++i) {
         now += TICK_MS;
-        double yaw = 170+.001*i; /* Deliberate real yaw: only 0.1 deg/s. */
+        double yaw = 170+.001*i;
         assert(feed(&s, now, rest, add(settled_bias, (P2_Vector){0,0,.1f}), magnetic(yaw)));
         double error = angular_error(s.heading_deg, yaw-170);
         if (error > peak) peak = error;
@@ -322,8 +313,7 @@ static void inertial_interruption_between_magnetic_samples(void) {
         P2_Vector a = rest, g = bias;
         if (mode==0) g.z += 10;
         else a.z += 150;
-        /* The inertial devices can publish faster than the magnetometer.
-         * A detected disturbance cannot be forgotten before its next update. */
+
         P2_MotionGyro(&s, g, now);
         P2_MotionAcceleration(&s, a, now);
         uint32_t disturbed = now;
@@ -345,8 +335,7 @@ static void recovery_preserves_origin(void) {
     float origin = s.heading_origin_deg;
     P2_Vector saved_bias = s.attitude.bias;
     s.steps=17; s.distance_m=11.9f;
-    /* A missing gyro makes heading temporarily unavailable. A complete fresh,
-     * quiet window recovers the moved endpoint, never a new startup zero. */
+
     now += P2_GYRO_FRESH_MS+20U;
     uint32_t recovery_start = now;
     assert(!feed(&s, now, rest, bias, magnetic(84)));

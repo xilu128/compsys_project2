@@ -49,7 +49,7 @@ try {
     & $Python (Join-Path $PSScriptRoot 'test_logging.py')
     if ($LASTEXITCODE -ne 0) { throw 'Logging tests failed' }
 } finally {
-    # Only the uniquely created test directory; never a repository/workspace root.
+
     $resolved=(Resolve-Path -LiteralPath $out).Path
     $expected=[IO.Path]::GetFullPath($out)
     if ($resolved -eq $expected -and (Split-Path $resolved -Leaf) -like 'p2-tests-*') {

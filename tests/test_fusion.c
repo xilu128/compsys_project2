@@ -1,7 +1,5 @@
-/* Independent analytic inertial fixtures, not a hardware accuracy claim.
- * R(body->world) = Rz(yaw) Ry(pitch) Rx(roll); all truth uses double precision.
- * The driver must supply the effective algebra angular velocity required by
- * P2_MotionGyro, after the documented sensor-frame/handedness conversion. */
+
+
 #include "p2_motion.h"
 #include "p2_config.h"
 #include "p2_packet.h"
@@ -72,7 +70,7 @@ static void dynamic_pose(void) {
             double t=i*.01,mid=t-.005,yaw=yaw0+(moving?20*t:0);
             double pitch=45*sin(1.3*t),roll=30*sin(.7*t);
             P2_Vector acc=body((P2_Vector){0,0,1000},yaw,pitch,roll);
-            /* Short 0.4g translation bursts: actual orientation is unchanged. */
+
             if(i%160>=80 && i%160<100)
                 acc=plus(acc,body((P2_Vector){350,-150,140},yaw,pitch,roll));
             P2_Vector g=omega(45*sin(1.3*mid),30*sin(.7*mid),moving?20:0,
@@ -103,13 +101,12 @@ static void interference(void) {
             bool bad=i<=650;
             if(bad) {
                 if(mode==0)m=(P2_Vector){m.x*1.8f,m.y*1.8f,m.z*1.8f};
-                else m=body((P2_Vector){0,150,300},yaw,0,0); /* Same norm+dip. */
+                else m=body((P2_Vector){0,150,300},yaw,0,0);
             }
             bool valid=feed(&s,start+i*10U,(P2_Vector){0,0,1000},(P2_Vector){0,0,15},m);
-            assert(valid); /* Fresh gyro transports a live heading throughout. */
+            assert(valid);
             if(bad) { assert(!s.attitude.magnetic_accepted); ++rejected; }
-            /* Rejected magnetic aiding is separate from inertial availability.
-             * A clean full consistency block is needed to resume correction. */
+
             if(i>650 && i<=850) assert(!s.attitude.magnetic_accepted);
             if(i>850) assert(s.attitude.magnetic_accepted);
             if(valid) {
@@ -159,7 +156,7 @@ static void vertical_and_turns(void) {
 static void time_and_startup(void) {
     P2_Motion s;P2_MotionInit(&s);P2_MotionRequireGyro(&s);
     s.mag_bias=(P2_Vector){0,0,0};s.mag_scale=(P2_Vector){1,1,1};
-    /* Rotating startup must never become a calibrated bias. */
+
     for(unsigned i=0;i<300;i++)
         assert(!feed(&s,i*10U,(P2_Vector){0,0,1000},(P2_Vector){0,0,20},body(field,i*.2,0,0)));
     assert(!s.attitude.calibrated);
@@ -172,10 +169,10 @@ static void time_and_startup(void) {
     for(unsigned i=1;i<=200;i++)
         assert(feed(&s,start+i*10U,(P2_Vector){0,0,1000},(P2_Vector){0,0,20},body(field,83+i*.2,0,0)));
     assert(angular_error(s.heading_deg,40)<.06);
-    /* Without a fresh gyro, new accel+mag cannot publish a valid heading. */
+
     P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},start+2200U);
     assert(!P2_MotionHeading(&s,body(field,123,0,0)));
-    /* Nonfinite gyro is immediately unavailable, not a valid frozen output. */
+
     P2_MotionGyro(&s,(P2_Vector){NAN,0,0},start+2200U);
     assert(!s.heading_valid);
     assert(!P2_MotionHeading(&s,body(field,123,0,0)));
@@ -187,9 +184,7 @@ static P2_Vector cross(P2_Vector a,P2_Vector b) {
 }
 static P2_Vector polar_swap(P2_Vector v) { return (P2_Vector){v.y,v.x,v.z}; }
 static void frame_mapping(void) {
-    /* For the improper polar-coordinate transform P (det P = -1), the
-     * transport identity is P(v x w) = (Pv) x (det(P) Pw). This verifies
-     * handedness algebra independently of sensor hardware mounting. */
+
     const P2_Vector vectors[]={{1,2,3},{-.2f,.5f,.9f},{0,0,1}};
     const P2_Vector rates[]={{90,0,0},{0,90,0},{0,0,90},{3,7,-11}};
     for(unsigned i=0;i<sizeof(vectors)/sizeof(vectors[0]);i++)
@@ -211,8 +206,7 @@ static void gap_recovery(void) {
     float origin=s.heading_origin_deg,reference=s.attitude.field_norm,dip=s.attitude.dip;
     P2_Vector clean=body(field,77,0,0),bad={clean.x*1.8f,clean.y*1.8f,clean.z*1.8f};
     s.steps=17; s.distance_m=11.9f;
-    /* Inertial loss is immediately unavailable. A badly changed field must
-     * not satisfy the subsequent controlled, stationary reacquisition. */
+
     now+=100;
     for(unsigned i=0;i<100;i++) {
         assert(!feed(&s,now+i*10U,(P2_Vector){0,0,1000},(P2_Vector){0,0,0},bad));
@@ -223,7 +217,7 @@ static void gap_recovery(void) {
     now+=1000;
     for(unsigned i=0;i<30;i++)
         assert(!feed(&s,now+i*10U,(P2_Vector){0,0,1000},(P2_Vector){0,0,0},clean));
-    /* An acceleration impulse interrupts the continuous recovery window. */
+
     now+=300;
     assert(!feed(&s,now,(P2_Vector){0,0,1300},(P2_Vector){0,0,0},clean));
     now+=10;
@@ -279,8 +273,7 @@ static void high_rate_turns_and_variable_field(void) {
     assert(fabsf(s.attitude.up.x-a.x/1000)<.0001f);
     assert(fabsf(s.attitude.up.y-a.y/1000)<.0001f);
     assert(fabsf(s.attitude.up.z-a.z/1000)<.0001f);
-    /* Per-axis range, not total vector magnitude; a truly over-range axis
-     * must nevertheless make output unavailable immediately. */
+
     P2_MotionGyro(&s,(P2_Vector){P2_GYRO_MAX_DPS+1,0,0},now+20);
     assert(!s.heading_valid && s.attitude.mag_guard.reference_lost);
     now=settle(&s,now+100,0,0,0);

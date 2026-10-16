@@ -13,8 +13,8 @@ $ide=Join-Path $IdeDirectory 'stm32cubeidec.exe'
 if (-not (Test-Path -LiteralPath $ide)) { throw "CubeIDE not found: $ide. Supply -IdeDirectory." }
 $state=Join-Path $Workspace 'ide-configuration'
 New-Item -ItemType Directory -Path $Workspace,$state -Force | Out-Null
-# A source-only import has no generated makefile yet. Bootstrap before asking
-# Eclipse to clean; otherwise make clean reports a false missing-target error.
+
+
 if (-not (Test-Path -LiteralPath (Join-Path $project "$Configuration\makefile"))) {
     & $ide -nosplash -configuration $state -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data $Workspace -import $project -build "COMSYS704/$Configuration" 2>&1 | Tee-Object -FilePath (Join-Path $Workspace "bootstrap-$Configuration.log")
     if ($LASTEXITCODE -ne 0) { throw 'Initial makefile generation failed' }

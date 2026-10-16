@@ -4,7 +4,7 @@
   * @author  System Research & Applications Team - Catania Lab.
   * @version 4.2.0
   * @date    07-Feb-2022
-  * @brief 
+  * @brief
   ******************************************************************************
   * @attention
   *
@@ -18,7 +18,6 @@
   ******************************************************************************
   */
 
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __BLE_LIST_UTILS_H
 #define __BLE_LIST_UTILS_H
 
@@ -26,12 +25,9 @@
 extern "C" {
 #endif
 
-/* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal.h"
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* __BLE_LIST_UTILS_H */
-
-
+#endif

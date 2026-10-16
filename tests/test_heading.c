@@ -1,5 +1,5 @@
-/* Regression of direction convention, invalid handling and circular filtering.
- * Analytic signals are not a claim of real-world heading accuracy. */
+
+
 #include "p2_motion.h"
 #include "p2_config.h"
 #include "p2_packet.h"
@@ -9,7 +9,7 @@
 
 static const P2_Vector level = {0,0,1000};
 static float error(float a, float b) {
-    /* Compare analytic geometry after the configured reference rotation. */
+
     assert(isfinite(a));
     assert(a >= 0.0f && a < 360.0f);
     float e = remainderf(a-b-P2_HEADING_OFFSET_DEG,360.0f);
@@ -17,22 +17,19 @@ static float error(float a, float b) {
 }
 static void settle(P2_Motion *s) {
     P2_MotionInit(s);
-    /* Geometry/filter fixtures use a fixed zero; boot-relative tests below
-     * explicitly clear this flag to exercise real startup acquisition. */
+
     s->heading_origin_set = true;
     s->mag_bias=(P2_Vector){0,0,0};
     s->mag_scale=(P2_Vector){1,1,1};
     for (uint32_t t=0;t<=1200;t+=20) P2_MotionAcceleration(s,level,t);
-    s->magnetic_reference=sqrtf(300*300+250*250); /* Geometry fixture. */
+    s->magnetic_reference=sqrtf(300*300+250*250);
 }
 static P2_Vector observed(float clockwise) {
-    /* Raw observed horizontal field rotates oppositely in the labelled CW
-     * fixture; cardinal cases below explicitly exercise this board convention. */
+
     float r=clockwise*0.01745329252f;
     return (P2_Vector){300*cosf(r),-300*sinf(r),250};
 }
-/* Independent fixture: body-to-world Rz(yaw)*Ry(pitch)*Rx(roll).
- * Transform a fixed world vector back into the sensor frame with R transpose. */
+
 static P2_Vector in_body(P2_Vector v, float yaw, float pitch, float roll) {
     float d=0.01745329252f;
     float cy=cosf(yaw*d), sy=sinf(yaw*d);
@@ -42,7 +39,7 @@ static P2_Vector in_body(P2_Vector v, float yaw, float pitch, float roll) {
     float xx=cp*x-sp*z, zz=sp*x+cp*z;
     return (P2_Vector){xx,cr*y+sr*zz,-sr*y+cr*zz};
 }
-/* Wait for the explicit startup/recovery window when testing geometry. */
+
 static bool ready_heading(P2_Motion *s, P2_Vector m) {
     for (unsigned i=0;i<60;i++) {
         if (P2_MotionHeading(s,m)) {
@@ -57,15 +54,14 @@ static bool ready_heading(P2_Motion *s, P2_Vector m) {
 }
 int main(void) {
     P2_Motion s;
-    /* Full turns must not create history-dependent signed branches. The
-     * guideline display always maps CW +3 to 3 and CCW -3 to 357 degrees. */
+
     for(int direction=-1;direction<=1;direction+=2) {
         settle(&s); s.heading_origin_set=false;
         assert(ready_heading(&s,observed(137)));
         assert(s.heading_deg == 0.0f);
         assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status) == 0);
         for(int angle=1;angle<=363;angle++) {
-            s.heading_valid=false; /* Isolate branch semantics from filter lag. */
+            s.heading_valid=false;
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(137+direction*(float)angle)));
         }
@@ -80,8 +76,7 @@ int main(void) {
         }
     }
     puts("PASS: full cycle then 357 -> 0 -> 3; history-independent reverse crossings and integer zero");
-    /* Actual moving-tilt fixture: yaw is constant while pitch/roll oscillate
-     * at 0.5 Hz. Validate while moving, not only after a long settling hold. */
+
     float max_dynamic_error=0.0f;
     for(int yaw=0;yaw<360;yaw+=30) {
         settle(&s); s.heading_origin_set=false;
@@ -96,9 +91,7 @@ int main(void) {
     }
     printf("Dynamic tilt max analytic heading error: %.3f deg\n",max_dynamic_error);
     assert(max_dynamic_error<5.0f);
-    /* All heading quadrants, combined pitch/roll, with shipping calibration
-     * inverted to generate raw readings. This proves geometry, not hardware
-     * axis alignment or the physical calibration coefficients. */
+
     float max_tilt_error=0.0f;
     unsigned tilt_cases=0;
     for(int yaw=0;yaw<360;yaw+=15)
@@ -118,8 +111,7 @@ int main(void) {
                 assert(e<.06f);
                 ++tilt_cases;
             }
-    /* Gravity low-pass converges after a real change of tilt while the
-     * world yaw stays fixed; do not bypass the accelerometer update here. */
+
     settle(&s); s.heading_origin_set=false;
     assert(ready_heading(&s,observed(43)));
     P2_Vector tilted_g=in_body(level,43,45,-35);
@@ -130,13 +122,12 @@ int main(void) {
         if(s.heading_valid) assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
     }
     assert(s.heading_valid && error(s.heading_deg,0)<.2f);
-    /* +X too near vertical has no reliable horizontal heading. */
+
     settle(&s); s.gravity=in_body(level,0,85,0);
     assert(!P2_MotionHeading(&s,in_body((P2_Vector){300,0,250},0,85,0)));
     printf("PASS: %u combined tilt cases, max analytic error %.5f deg; settled tilt and near-vertical rejection\n",
            tilt_cases,max_tilt_error);
-    /* Smooth two-turn traces wrap into [0,360). Returning along the same
-     * path returns to zero without retaining a signed cycle counter. */
+
     for(int sign=-1;sign<=1;sign+=2) {
         settle(&s); s.heading_origin_set=false;
         assert(ready_heading(&s,observed(137)));
@@ -144,7 +135,7 @@ int main(void) {
             float turn=sign*(i<=720 ? (float)i : 1440.0f-i);
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(137+turn)));
-            assert(error(s.heading_deg,turn)<9.0f); /* intentional filter lag */
+            assert(error(s.heading_deg,turn)<9.0f);
             if(i==360 || i==720) {
                 for(unsigned j=0;j<100;j++) {
                     P2_MotionAcceleration(&s,level,s.last_ms+20U);
@@ -162,7 +153,7 @@ int main(void) {
         assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==0);
     }
     puts("PASS: unsigned full-turn display wrap and reverse return to zero");
-    /* Arbitrary startup directions become zero; recovery retains that origin. */
+
     for (unsigned origin=0; origin<360; origin+=37) {
         settle(&s); s.heading_origin_set=false;
         assert(!P2_MotionHeading(&s,(P2_Vector){NAN,0,0}));
@@ -173,7 +164,7 @@ int main(void) {
         float saved=s.heading_origin_deg;
         const float turns[]={90,180,270,360,-90,-180,-270,-360};
         for (unsigned j=0;j<sizeof(turns)/sizeof(turns[0]);j++) {
-            /* Fresh seed isolates geometry from intentional filter lag. */
+
             assert(!P2_MotionHeading(&s,(P2_Vector){0,0,0}));
             P2_MotionAcceleration(&s,level,s.last_ms+20U);
             assert(ready_heading(&s,observed(origin+turns[j])));
@@ -208,21 +199,21 @@ int main(void) {
         assert(error(s.heading_deg,90.0f*i)<.01f);
         assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==(int)(90U*i));
     }
-    /* Crossing north must not pass through south. */
+
     settle(&s); assert(ready_heading(&s,observed(359)));
     for(uint32_t t=1220;t<2220;t+=20) {
         P2_MotionAcceleration(&s,level,t);
         assert(ready_heading(&s,observed(1)));
         assert(error(s.heading_deg,0)<1.01f);
     }
-    /* Reference offset moves north; filtering must wrap at displayed zero too. */
+
     settle(&s); assert(ready_heading(&s,observed(359-P2_HEADING_OFFSET_DEG)));
     for(uint32_t t=1220;t<2220;t+=20) {
         P2_MotionAcceleration(&s,level,t);
         assert(ready_heading(&s,observed(1-P2_HEADING_OFFSET_DEG)));
         assert(fabsf(remainderf(s.heading_deg,360.0f)) < 1.01f);
     }
-    /* Unit-circle filtering rejects alternating jitter without freezing yaw. */
+
     settle(&s); assert(ready_heading(&s,observed(90)));
     for(uint32_t t=1220;t<3220;t+=20) {
         P2_MotionAcceleration(&s,level,t);
@@ -234,7 +225,7 @@ int main(void) {
         assert(ready_heading(&s,observed(180)));
     }
     assert(error(s.heading_deg,180)<.3f);
-    /* Never turn bad measurements into held-valid output; reacquire fresh. */
+
     assert(!P2_MotionHeading(&s,(P2_Vector){0,0,250}));
     assert(!s.heading_valid);
     P2_MotionAcceleration(&s,level,4220);
@@ -247,9 +238,9 @@ int main(void) {
     for(uint32_t t=8020;t<=9020;t+=20) P2_MotionAcceleration(&s,level,t);
     assert(ready_heading(&s,observed(45)));
     assert(error(s.heading_deg,45)<.01f);
-    /* Shipping bias and scale are applied before projection/filtering. */
+
     P2_MotionInit(&s);
-    s.heading_origin_set = true; /* Isolate calibration geometry. */
+    s.heading_origin_set = true;
     for(uint32_t t=0;t<=1200;t+=20) P2_MotionAcceleration(&s,level,t);
     P2_Vector with_bias={P2_MAG_BIAS_X,
         -300/P2_MAG_SCALE_Y+P2_MAG_BIAS_Y,
@@ -257,8 +248,7 @@ int main(void) {
     assert(ready_heading(&s,with_bias));
     assert(error(s.heading_deg,90)<.01f);
 #if P2_MAG_CALIBRATED
-    /* Plausible absolute strength may still be a local disturbance.
-     * Sustained interference must not become the new reference. */
+
     settle(&s); assert(ready_heading(&s,observed(0)));
     for (uint32_t t=1220;t<3220;t+=20) {
         P2_MotionAcceleration(&s,level,t);
@@ -267,12 +257,12 @@ int main(void) {
     }
     assert(ready_heading(&s,observed(90)));
     assert(error(s.heading_deg,90)<.01f);
-    /* Normal rotation with constant field strength remains accepted. */
+
     for (unsigned i=0;i<360;i++) {
         P2_MotionAcceleration(&s,level,s.last_ms+20U);
         assert(ready_heading(&s,observed((float)i)));
     }
-    /* Reference requires continuous time, not repeated calls at one tick. */
+
     settle(&s); s.magnetic_reference=0;
     for (unsigned i=0;i<100;i++) {
         assert(!P2_MotionHeading(&s,observed(0)));
@@ -296,8 +286,7 @@ int main(void) {
     assert(P2_MotionHeading(&s,observed(90)));
     assert(error(s.heading_deg,90)<.01f);
 #else
-    /* Uncalibrated startup must not wait for an unreliable strength reference.
-     * Field variation inside the sanity limits must not latch the display off. */
+
     settle(&s); s.magnetic_reference=0.0f;
     assert(P2_MotionHeading(&s,observed(0)));
     assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
@@ -311,7 +300,7 @@ int main(void) {
     assert(P2_MotionHeading(&s,observed(90)));
     assert(isfinite(s.heading_deg) && s.heading_deg>=0.0f && s.heading_deg<360.0f);
 #endif
-    /* 32-bit tick rollover must retain the correct small filter interval. */
+
     settle(&s); s.start_ms=UINT32_MAX-3000U; s.last_ms=UINT32_MAX-10U;
     assert(ready_heading(&s,observed(359)));
     s.last_ms=9U; assert(ready_heading(&s,observed(1)));

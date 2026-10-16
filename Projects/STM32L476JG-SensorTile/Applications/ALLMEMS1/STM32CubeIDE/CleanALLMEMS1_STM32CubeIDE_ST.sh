@@ -2,13 +2,13 @@
 echo "Disabled: legacy bootloader layout. Flash the rebuilt ELF; BIN base is 0x08000000. See README.md." >&2
 exit 1
 
-######## Modify this Section:
-# 1) Set the Installation path for STM32CubeProgrammer
-# example:
-#CubeProg="/c/Program Files/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI"
+
+
+
+
 CubeProg="STM32_Programmer_CLI"
 
-## Run section
+
 
 echo "/******************************************/"
 echo "           Clean FP-SNS-ALLMEMS1"

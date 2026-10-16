@@ -1,4 +1,4 @@
-# Shared discovery for build/debug tooling. No installation-specific path required.
+
 function Find-CubeIde([string]$Preferred) {
     if ($Preferred) {
         if (Test-Path -LiteralPath (Join-Path $Preferred 'stm32cubeidec.exe')) { return $Preferred }

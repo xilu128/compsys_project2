@@ -106,8 +106,8 @@ def replay(path, source, include, cc="cc", output=None):
         subprocess.run([*compiler_command(cc), "-std=c99", "-Wall", "-Wextra",
                         "-Werror", "-pedantic", "-I", str(include), str(runner),
                         str(source), "-lm", "-o", str(executable)], check=True)
-        # The portable implementation's unsigned milliseconds naturally wraps
-        # at 2**32; retain full unwrapped time in the exported CSV.
+
+
         data = "".join(" ".join(map(str, (sample[0], sample[1] & 0xffffffff,
                                         *sample[2:]))) + "\n" for sample in samples)
         completed = subprocess.run([str(executable)], input=data, text=True,

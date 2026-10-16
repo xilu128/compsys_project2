@@ -35,9 +35,9 @@ def packet(data, session=1):
     p = decode(data)
     if p['steps'] < 0 or p['distance'] < 0:
         raise ValueError('Invalid summary fields in motion packet')
-    # The firmware owns the startup reference and integer-degree conversion.
-    # Do not wrap/re-zero legacy signed packets here: that would hide a firmware
-    # mismatch from the instructor's app, which receives the same BLE fields.
+
+
+
     if p['heading'] not in HEADING_STATUS and not (
             0 <= p['heading'] <= 359 and p['heading'].is_integer()):
         raise ValueError('Heading protocol mismatch: expected integer 0–359°; '

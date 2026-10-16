@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run from any directory; separate headless workspace avoids locking the GUI workspace.
+
 set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 ide=${STM32CUBEIDE_EXECUTABLE:-/Applications/STM32CubeIDE.app/Contents/MacOS/STM32CubeIDE}

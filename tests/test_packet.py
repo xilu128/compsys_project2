@@ -27,8 +27,8 @@ for degrees in range(360):
     assert p['heading'] == degrees and p['heading_valid']
     assert heading_label(p) == f'{degrees}°'
 
-# Exact course examples, including both directions through startup zero and a
-# complete revolution. No host-side origin is learned on the first packet.
+
+
 for session in (1, 2):
     for degrees in (270, 0, 90, 180, 270, 359, 0, 1, 0, 359, 270, 180, 90, 0):
         p = packet(struct.pack('<H9h', 65535, 100, -200, 980, 120, degrees*10,
@@ -37,8 +37,8 @@ for session in (1, 2):
         assert p['steps'] == 12 and p['distance'] == 8.4
         assert csv_row(p)[10:13] == [degrees, 1, 8.4]
 
-# Fail visibly for old signed-cycle firmware or malformed integer-degree data;
-# never silently turn -90 into 270 or 360 into 0 in the Windows viewer.
+
+
 for wire_heading in (-32763, -32000, -3600, -900, -10, -1, 1, 899, 3591, 3599,
                      3600, 7200, 32000, 32767):
     try:
@@ -56,7 +56,7 @@ for steps, distance in ((-1, 0), (0, -1)):
         raise AssertionError('Negative step count or distance accepted')
 print('PASS: 0–359 integer headings, clockwise/CCW examples, reconnect origin, CSV and reserved statuses')
 
-# Exercise compass rendering without opening a GUI or connecting to hardware.
+
 class FakeCanvas:
     def __init__(self):
         self.text = []

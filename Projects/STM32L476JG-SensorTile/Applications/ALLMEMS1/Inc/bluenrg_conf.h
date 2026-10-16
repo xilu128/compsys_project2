@@ -4,7 +4,7 @@
   * @author  System Research & Applications Team - Catania Lab.
   * @version 4.2.0
   * @date    07-Feb-2022
-  * @brief 
+  * @brief
   ******************************************************************************
   * @attention
   *
@@ -18,7 +18,6 @@
   ******************************************************************************
   */
 
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __BLUENRG_CONF_H
 #define __BLUENRG_CONF_H
 
@@ -26,25 +25,22 @@
 extern "C" {
 #endif
 
-/* Includes ------------------------------------------------------------------*/
-
 #include "stm32l4xx_hal.h"
 #include <string.h>
 
-/*---------- Print messages from files at user level -----------*/
 #define BLE1_DEBUG      0
-/*---------- Print the data travelling over the SPI in the .csv format for the GUI -----------*/
+
 #define PRINT_CSV_FORMAT      0
-/*---------- Number of Bytes reserved for HCI Read Packet -----------*/
+
 #define HCI_READ_PACKET_SIZE      128
-/*---------- Number of Bytes reserved for HCI Max Payload -----------*/
+
 #define HCI_MAX_PAYLOAD_SIZE      128
 
 #define HCI_DEFAULT_TIMEOUT_MS        1000
 
 #define BLUENRG_memcpy                memcpy
 #define BLUENRG_memset                memset
-  
+
 #if (BLE1_DEBUG == 1)
 #define PRINTF(...)                   printf(__VA_ARGS__)
 #else
@@ -62,14 +58,4 @@ void print_csv_time(void);
 #ifdef __cplusplus
 }
 #endif
-#endif /*__BLUENRG_CONF_H */
-
-/**
- * @}
- */
-
-/**
- * @}
- */
-
-
+#endif

@@ -83,7 +83,7 @@ class Recorder:
         self.samples = self.malformed = 0
 
     def feed(self, chunk):
-        self.raw.write(chunk)  # All bytes, including startup/error/malformed/partial lines.
+        self.raw.write(chunk)
         self.raw.flush()
         for byte in chunk:
             if self.discarding:
@@ -125,7 +125,7 @@ def choose_port(ports, requested=None, ask=input):
         return candidates[0].device
     if not ports:
         raise ValueError('No serial ports found. Connect ST-LINK and its UART wiring.')
-    # Never silently open an unrelated Bluetooth/USB serial device.
+
     while True:
         answer = ask('Select port number (or q to cancel): ').strip()
         if answer.lower() == 'q':
@@ -182,7 +182,7 @@ def main(argv=None):
     status = 0
     try:
         port_name = choose_port(list_ports.comports(), args.port)
-        # No firmware reset command or input-buffer purge.
+
         with serial.Serial(port_name, args.baud, bytesize=8, parity='N', stopbits=1,
                            timeout=0.2, rtscts=False, dsrdtr=False) as port:
             raw_path, csv_path, raw, csv_file = create_outputs(args.output_dir.resolve(), args.name)
@@ -196,8 +196,8 @@ def main(argv=None):
                         chunk = port.read(min(max(port.in_waiting, 1), 4096))
                         if chunk:
                             recorder.feed(chunk)
-                    # Drain the bytes already buffered at stop, not an unbounded
-                    # stream. A trailing incomplete record stays in the raw log.
+
+
                     remaining = min(port.in_waiting, 65536)
                     while remaining:
                         chunk = port.read(min(remaining, 4096))
@@ -205,8 +205,8 @@ def main(argv=None):
                             break
                         recorder.feed(chunk)
                         remaining -= len(chunk)
-                    # Finish a line already in flight, with a bounded grace period.
-                    # On unplug/timeout its partial bytes are still preserved raw.
+
+
                     finish_by = time.monotonic() + 0.25
                     while recorder.pending and time.monotonic() < finish_by:
                         chunk = port.read(1)

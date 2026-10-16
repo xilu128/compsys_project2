@@ -10,11 +10,11 @@ static int fail_call, corrupt_register, calls, writes, axis_reads;
 static int32_t read_register(uint16_t reg, uint8_t *data, uint16_t length) {
     ++calls;
     if (calls == fail_call) return -1;
-    assert((registers[0x12] & 0x08U) != 0); /* The board is wired as 3-wire. */
+    assert((registers[0x12] & 0x08U) != 0);
     assert(reg + length <= sizeof registers);
     if (reg == 0x22) {
         assert(length == 6);
-        assert((registers[0x12] & 0x44U) == 0x44U); /* BDU + auto increment */
+        assert((registers[0x12] & 0x44U) == 0x44U);
         ++axis_reads;
     }
     memcpy(data, registers + reg, length);
@@ -60,7 +60,7 @@ int main(void) {
     for (int failed = 1; failed <= init_calls; ++failed) {
         reset_mock(); fail_call = failed;
         assert(!P2_GyroInit(&bus));
-        /* Retry is bounded by caller, and never needs a process/global reset. */
+
         fail_call = -1;
         assert(P2_GyroInit(&bus));
     }
@@ -74,7 +74,7 @@ int main(void) {
     reset_mock(); assert(P2_GyroInit(&bus));
     registers[0x1E] = 0;
     assert(P2_GyroRead(&bus, &value) == 0); unchanged(value);
-    registers[0x1E] = 0x05; /* Accel + temperature ready do not mean gyro ready. */
+    registers[0x1E] = 0x05;
     assert(P2_GyroRead(&bus, &value) == 0); unchanged(value);
     assert(axis_reads == 0);
     registers[0x1E] = 0x02;
@@ -92,9 +92,7 @@ int main(void) {
     assert(P2_GyroRead(&bus, &value) == 1);
     assert(fabsf(value.x - 2293.69f) < 0.001f);
     assert(fabsf(value.y + 0.07f) < 0.0001f && value.z == 0);
-    /* 500 dps is not an exact multiple of 0.07 dps/LSB. Check its closest
-     * count, a rate beyond the old range, and a rate near the new full scale.
-     * The driver only converts; physical-range rejection belongs to motion. */
+
     raw_word(0x22, 7143); raw_word(0x24, 10000); raw_word(0x26, 28571);
     assert(P2_GyroRead(&bus, &value) == 1);
     assert(fabsf(value.x - 500.01f) < 0.001f);

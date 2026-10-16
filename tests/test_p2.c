@@ -16,9 +16,9 @@ static void heading_near(float actual, float expected, float eps) {
 }
 static void settle(P2_Motion *s) {
     P2_MotionInit(s);
-    /* Fixed origin isolates absolute projection geometry in these fixtures. */
+
     s->heading_origin_set = true;
-    /* Analytic vectors below are already bias-free, unlike the hardware logs. */
+
     s->mag_bias = (P2_Vector){0,0,0};
     s->mag_scale = (P2_Vector){1,1,1};
     for (unsigned t=0; t<2000; t+=20) P2_MotionAcceleration(s,(P2_Vector){0,0,1000},t);
@@ -41,7 +41,7 @@ static int32_t ra(uint16_t r,uint8_t *d,uint16_t n) { if(fault) return -1; memcp
 static int32_t rm(uint16_t r,uint8_t *d,uint16_t n) { if(fault) return -1; memcpy(d,mr+r,n);return 0; }
 static int32_t wa(uint16_t r,uint8_t *d,uint16_t n) { memcpy(ar+r,d,n);return 0; }
 static int32_t wm(uint16_t r,uint8_t *d,uint16_t n) { memcpy(mr+r,d,n);return 0; }
-/* Wait for the explicit startup/recovery window when testing geometry. */
+
 static bool ready_heading(P2_Motion *s, P2_Vector m) {
     for (unsigned i=0;i<60;i++) {
         if (P2_MotionHeading(s,m)) {
@@ -55,8 +55,7 @@ static bool ready_heading(P2_Motion *s, P2_Vector m) {
     return false;
 }
 int main(void) {
-    /* Exact public values, not circular comparisons: signed legacy output
-     * would otherwise pass a geometry-only test despite violating the rubric. */
+
     const float inputs[]={0,90,-90,180,-180,270,-270,360,-360,720,-720,
                           -1,-.1f,.49f,.5f,359.49f,359.5f,359.9f,3200,-3200};
     const int expected[]={0,90,270,180,180,270,90,0,0,0,0,
@@ -75,8 +74,7 @@ int main(void) {
         assert(P2_HeadingDisplay(nonfinite[i],1,1)==-32764);
         assert(P2_HeadingWire(nonfinite[i],1,1)==-32764);
     }
-    /* A wide input sweep verifies normalization, integer rounding and the
-     * BLE tenths-unit compatibility scale without changing field offsets. */
+
     for(int tenths=-14400;tenths<=14400;tenths++) {
         float degrees=tenths*.1f;
         int display=P2_HeadingDisplay(degrees,1,1);
@@ -89,7 +87,7 @@ int main(void) {
         P2_MotionAcceleration(&s,(P2_Vector){0,0,1000+8*sinf(t)},t);
     assert(s.steps==0);
     walking(1.0f,0); walking(2.0f,0); walking(3.0f,0); walking(2.0f,UINT32_MAX-5000U);
-    /* Adversarial 6 Hz motion must never bypass the refractory interval. */
+
     settle(&s);
     uint32_t last_step = 0;
     unsigned detected = 0;
@@ -97,7 +95,7 @@ int main(void) {
         uint32_t before=s.steps;
         P2_MotionAcceleration(&s,(P2_Vector){0,0,1000+600*sinf(6.283185307f*6*t/1000)},t);
         if (s.steps!=before) {
-            /* The first report includes the three confirmed startup steps. */
+
             assert(s.steps==before+(detected ? 1U : P2_STEP_CONFIRM_COUNT));
             if (detected) assert(t-last_step>=P2_STEP_MIN_MS);
             last_step=t; ++detected;
@@ -109,7 +107,7 @@ int main(void) {
         settle(&s); assert(ready_heading(&s,mag[i])); heading_near(s.heading_deg,(float)((360U-90U*i)%360U),0.01f);
         assert(P2_HeadingDisplay(s.heading_deg,1,s.heading_status)==(int)((360U-90U*i)%360U));
     }
-    /* Analytic 30-degree pitch: north and gravity rotate together. */
+
     settle(&s); s.gravity=(P2_Vector){-500,0,866.0254f};
     assert(ready_heading(&s,(P2_Vector){459.8076f,0,-196.4102f})); heading_near(s.heading_deg,0,0.01f);
     settle(&s); s.gravity=(P2_Vector){-500,0,866.0254f};
@@ -119,10 +117,10 @@ int main(void) {
     assert(!P2_MotionHeading(&s,(P2_Vector){NAN,0,0}));
     s.gravity=(P2_Vector){1000,0,0}; assert(!P2_MotionHeading(&s,mag[0]));
     settle(&s); P2_MotionAcceleration(&s,(P2_Vector){0,0,1200},10000); assert(s.steps==0);
-    assert(!P2_MotionHeading(&s,mag[0])); /* settle again after a sampling gap */
+    assert(!P2_MotionHeading(&s,mag[0]));
     settle(&s); assert(ready_heading(&s,mag[0]));
     P2_MotionAcceleration(&s,(P2_Vector){NAN,0,1000},2000);
-    assert(!P2_MotionHeading(&s,mag[0])); /* no revival of stale gravity */
+    assert(!P2_MotionHeading(&s,mag[0]));
     P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},2020);
     assert(!P2_MotionHeading(&s,mag[0]));
     for (unsigned t=2040;t<=3040;t+=20) P2_MotionAcceleration(&s,(P2_Vector){0,0,1000},t);
@@ -135,8 +133,8 @@ int main(void) {
     assert(!P2_SensorInit(&b)); ar[15]=0x33; mr[79]=0x40;
     assert(P2_SensorInit(&b)); assert(ar[0x23]==0x99 && mr[0x62]==0x30);
     assert(P2_SensorReadAcc(&b,&v)==0);
-    ar[0x27]=8; ar[0x28]=0x40; ar[0x29]=0x1f; /* +1000 mg */
-    ar[0x2a]=0xc0; ar[0x2b]=0xe0; /* -1000 mg */
+    ar[0x27]=8; ar[0x28]=0x40; ar[0x29]=0x1f;
+    ar[0x2a]=0xc0; ar[0x2b]=0xe0;
     assert(P2_SensorReadAcc(&b,&v)==1); near(v.x,1000,0.01f);near(v.y,-1000,0.01f);near(v.z,0,0.01f);
     mr[0x67]=8; mr[0x68]=0x64; mr[0x6a]=0x9c;mr[0x6b]=0xff;
     assert(P2_SensorReadMag(&b,&v)==1);near(v.x,150,0.01f);near(v.y,-150,0.01f);

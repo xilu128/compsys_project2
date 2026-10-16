@@ -1,5 +1,5 @@
-/* Bounded handheld motion, not walking/rotation during calibration.
- * Synthetic envelopes do not establish real-board accuracy. */
+
+
 #include "p2_motion.h"
 #include "p2_config.h"
 #include <assert.h>
@@ -53,8 +53,7 @@ static void handheld_boot_and_recovery(void) {
         assert(s.heading_deg==0.0f);
         if(first>latest)latest=first;
         float origin=s.heading_origin_deg;
-        /* Stop in the acquired pose. Retain the original +/-5 degree target,
-         * including residual bias accumulated by a non-integer tremor cycle. */
+
         double peak=0;
         for(unsigned i=0;i<12000;i++) {
             now+=10;
@@ -65,12 +64,11 @@ static void handheld_boot_and_recovery(void) {
         }
         if(peak>largest_drift)largest_drift=peak;
         P2_Vector saved=s.attitude.bias;
-        now+=80; /* real inertial loss */
+        now+=80;
         unsigned begin=now; bool recovered=false;
         for(unsigned i=0;i<800;i++,now+=10) {
             double t=i*.01,w=2*pi*hz[f];
-            /* 1-degree reversing motion: rate exceeds old3 dps; total
-             * endpoint displacement stays inside the new5 degree envelope. */
+
             double a=stop_angle+sin(w*t+phase*.9);
             bool valid=tick(&s,now,axis,a,w*cos(w*t+phase*.9),.3*sin(2*pi*13*t));
             assert(s.heading_origin_deg==origin && s.steps==0);

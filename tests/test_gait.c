@@ -1,4 +1,4 @@
-/* Signal robustness tests, not evidence of human carrying-mode accuracy. */
+
 #include "p2_motion.h"
 #include <assert.h>
 #include <math.h>
@@ -32,14 +32,13 @@ int main(void) {
     init(&s); walk(&s,20,800,500,false); walk(&s,20,800,110,true);
     assert(s.steps>=38 && s.steps<=41);
     init(&s); walk(&s,20,1200,300,false); walk(&s,20,500,300,false);
-    assert(s.steps>=38 && s.steps<=41); /* Continue through a speed change. */
-    /* Hand-held asymmetry: adjacent weak steps need not have equal periods.
-     * Once walking is confirmed, valid trough/peak cycles remain countable. */
+    assert(s.steps>=38 && s.steps<=41);
+
     init(&s); walk(&s,10,600,110,false);
     for(unsigned i=0;i<40;i++) walk(&s,1,(i/2)%2 ? 1000 : 400,110,true);
     printf("alternating hand-held cadence: %u/50\n",s.steps);
     assert(s.steps>=49 && s.steps<=51);
-    /* A real pause still requires a new bout, even after established walking. */
+
     for(unsigned i=0;i<150;i++) feed(&s,1000,false);
     uint32_t before=s.steps;
     walk(&s,1,600,110,false);

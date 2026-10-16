@@ -1,8 +1,5 @@
-/* Native replay of the actual portable firmware implementation.
- * Input: session_id device_ms acc_fresh mag_fresh ax ay az mx my mz
- * Output: heading_valid heading_deg steps (one output per input row).
- * BLE snapshots are not the original full-rate sensor input.
- */
+
+
 #include "p2_motion.h"
 #include <inttypes.h>
 #include <math.h>
@@ -27,8 +24,7 @@ int main(void) {
         if (acc_fresh != 0U) {
             P2_MotionAcceleration(&state, acc, ms);
         } else {
-            /* Match the invalid-input path: a later magnetic sample must not
-             * revive an old gravity estimate after acceleration became stale. */
+
             P2_Vector invalid_acc = {NAN, NAN, NAN};
             P2_MotionAcceleration(&state, invalid_acc, ms);
             state.heading_valid = false;

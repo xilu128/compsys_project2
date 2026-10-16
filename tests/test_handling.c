@@ -1,7 +1,5 @@
-/* Engineering regressions, not a substitute for held-out human walking tests.
- * Deliberate pitch/roll rocking can modulate |a| enough to resemble steps.
- * Verify its direction reversals veto steps without excluding fixed mounting,
- * small natural sway, or the separately tested continuously rotating frame. */
+
+
 #include "p2_motion.h"
 #include <assert.h>
 #include <math.h>
@@ -44,8 +42,7 @@ int main(void) {
                 assert(s.steps==0U);
                 assert(s.distance_m==0.0f);
             }
-    /* Preserve a published walking count while dropping handling candidates,
-     * then let an ordinary bout resume after motion quiets. */
+
     init(&s);
     motion(&s,10000,2,5,250,0);
     assert(s.steps>=19 && s.steps<=20);
@@ -56,14 +53,13 @@ int main(void) {
     assert(s.steps==before);
     motion(&s,10000,2,5,250,1);
     assert(s.steps>=before+19 && s.steps<=before+20);
-    /* Recovery also works without an artificial perfectly stationary pause:
-     * the conservative transition may discard the first unconfirmed steps. */
+
     init(&s);
     motion(&s,10000,.8f,60,250,0);
     assert(s.steps==0);
     motion(&s,15000,2,5,250,0);
     assert(s.steps>=24 && s.steps<=30);
-    /* Unsigned handling timers must also recover across the hardware tick wrap. */
+
     now=UINT32_MAX-7000U; P2_MotionInit(&s); rest(&s,2000);
     motion(&s,10000,.8f,60,250,0);
     assert(s.steps==0);

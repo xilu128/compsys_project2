@@ -1,9 +1,5 @@
-/** CS704 Project 2: real sensor acquisition and motion tracking.
- * See the top-level README.md for units, calibration, build and hardware tests.
- * Original ST platform/BLE infrastructure retained from the course starter.
- */
 
-/* Includes ------------------------------------------------------------------*/
+
 #include <stdio.h>
 #include <math.h>
 
@@ -18,19 +14,9 @@
 #include "bluenrg_utils.h"
 #include "SensorTile.h"
 
-
 #include "SensorTile_bus.h"
 
-   
-/* Private typedef -----------------------------------------------------------*/
-
-  
-/* Private define ------------------------------------------------------------*/
-
-
-/* Shutdown mode enabled as default for SensorTile */
 #define ENABLE_SHUT_DOWN_MODE 0
-
 
 #define BSP_LSM6DSM_INT2_GPIO_PORT           GPIOA
 #define BSP_LSM6DSM_INT2_GPIO_CLK_ENABLE()   __GPIOA_CLK_ENABLE()
@@ -54,36 +40,25 @@
 #define BSP_LPS22HB_CS_PIN GPIO_PIN_3
 #define BSP_LPS22HB_CS_GPIO_CLK_ENABLE()  __GPIOA_CLK_ENABLE()
 
-
 #define LSM_MAG_CS_LOW() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1,GPIO_PIN_RESET);
 #define LSM_MAG_CS_HIGH() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1,GPIO_PIN_SET);
 
 #define LSM_ACC_CS_LOW() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_4,GPIO_PIN_RESET);
 #define LSM_ACC_CS_HIGH() HAL_GPIO_WritePin(GPIOC, GPIO_PIN_4,GPIO_PIN_SET);
 
-/* Imported Variables -------------------------------------------------------------*/
 extern uint8_t set_connectable;
 extern int connected;
 
-    
-/* BlueNRG SPI */
 extern SPI_HandleTypeDef SPI_SD_Handle;
-    
+
 extern volatile float RMS_Ch[];
 extern float DBNOISE_Value_Old_Ch[];
 extern uint16_t PCM_Buffer[];
 extern uint32_t NumSample;
 
-/* Exported Variables -------------------------------------------------------------*/
 extern SPI_HandleTypeDef hbusspi2;
 
 extern uint8_t NodeName[8];
-
-//float sensitivity;
-
-/* Acc sensitivity multiply by FROM_MG_TO_G constant */
-//float sensitivity_Mul;
-
 
 uint32_t ConnectionBleStatus  =0;
 
@@ -101,8 +76,6 @@ uint8_t  NodeName[8];
 
 UART_HandleTypeDef UartHandle;
 
-
-/* Private variables ---------------------------------------------------------*/
 static volatile int MEMSInterrupt        =0;
 static volatile uint32_t ReadSensor        =0;
 static volatile uint32_t SendAccGyroMag  =0;
@@ -116,18 +89,16 @@ typedef struct  {
 BSP_MOTION_SENSOR_Axes_t ACC_Value;
 COMP_Data COMP_Value;
 BSP_MOTION_SENSOR_Axes_t MAG_Value;
-/* Private function prototypes -----------------------------------------------*/
+
 static void SystemClock_Config(void);
 
 static void Init_BlueNRG_Custom_Services(void);
 static void Init_BlueNRG_Stack(void);
 
-
 static void InitTimers(void);
 static void SendMotionData(void);
 static void InitTargetPlatform(void);
 static void InitLSM(void);
-
 
 void MX_UART5_UART_Init();
 
@@ -141,7 +112,6 @@ static int32_t P2_GyroReadReg(uint16_t reg, uint8_t *data, uint16_t len);
 void LSM303AGR_SPI_Read_nBytes(SPI_HandleTypeDef* xSpiHandle, uint8_t *val, uint16_t nBytesToRead);
 void LSM303AGR_SPI_Read(SPI_HandleTypeDef* xSpiHandle, uint8_t *val);
 void LSM303AGR_SPI_Write(SPI_HandleTypeDef* xSpiHandle, uint8_t val);
-
 
 static const P2_SensorBus SensorBus = {
     BSP_LSM303AGR_ReadReg_Acc, BSP_LSM303AGR_WriteReg_Acc,
@@ -168,7 +138,7 @@ static void InitGyro(void) {
     if (Motion.heading_origin_set) Motion.attitude.mag_guard.reference_lost=true;
     LastGyroAttempt=HAL_GetTick();
     GyroReady=P2_GyroInit(&GyroBus);
-    LastGyroAttempt=HAL_GetTick(); /* Successful enable starts warm-up here. */
+    LastGyroAttempt=HAL_GetTick();
     HaveGyro=0;
     LastGyroTick=LastGyroAttempt;
     Motion.attitude.seen=Motion.attitude.ready=Motion.attitude.calibrated=false;
@@ -207,11 +177,11 @@ static void ProcessSensors(void) {
     uint32_t now = HAL_GetTick();
     if (!SensorReady) {
         if (now - LastSensorAttempt >= P2_SENSOR_RETRY_MS) InitLSM();
-        /* Retrying never blocks the BLE event loop for a full retry period. */
+
         goto telemetry;
     }
     int result;
-    /* Propagate to this tick BEFORE applying the matching acceleration. */
+
     if (!GyroReady && now-LastGyroAttempt>=P2_SENSOR_RETRY_MS) {
         InitGyro();
         now=HAL_GetTick();
@@ -276,22 +246,19 @@ static void ProcessSensors(void) {
     }
 telemetry:
     COMP_Value.Steps = Motion.steps;
-    /* Course variables hold true steps and heading degrees, not wire scaling. */
+
     COMP_Value.Heading = P2_HeadingDisplay(Motion.heading_deg, Motion.heading_valid, Motion.heading_status);
-    /* BLE distance is tenths of a metre, matching the app's /10 gyroscope scale. */
+
     COMP_Value.Distance = Motion.distance_m < 3276.7f ?
         (uint32_t)lroundf(Motion.distance_m * 10.0f) : 32767U;
     static uint32_t last_log;
     if (now - last_log >= P2_LOG_PERIOD_MS) {
         last_log = now;
-        /* Integer formatting avoids enabling printf-float or changing BLE rounding.
-         * Log full internal distance, not the BLE packet's saturated field. */
-        /* Log the same 0..359 value as BLE/marking output. The fused internal
-         * vectors retain sub-degree precision; this rounding is display only. */
+
         bool heading_display_valid = Motion.heading_valid && COMP_Value.Heading >= 0;
         uint32_t heading10 = heading_display_valid ? (uint32_t)COMP_Value.Heading * 10U : 0U;
         double distance = Motion.distance_m;
-        /* Adaptive step lengths may exceed uint32 metres at count saturation. */
+
         uint32_t metres = distance >= UINT32_MAX ? UINT32_MAX : (uint32_t)distance;
         uint32_t tenths = distance >= UINT32_MAX ? 0U :
             (uint32_t)((distance - metres) * 10.0 + 0.5);
@@ -313,9 +280,7 @@ telemetry:
             (unsigned long)BleErrors, (unsigned long)AccSamples, (unsigned long)MagSamples,
             (unsigned)(HaveAcc && now-LastAccTick <= P2_ACC_FRESH_MS),
             (unsigned)(HaveMag && now-LastMagTick <= P2_MAG_FRESH_MS), (unsigned long)LogDropped);
-        /* Separate diagnostics preserve the existing P2DATA CSV contract and
-         * leave ample room in the bounded UART line buffer. Native gyro mdps;
-         * frame conversion is explicit in P2_GyroToBody, never hidden in logs. */
+
         XPRINTF("P2IMU,ms=%lu,gx_mdps=%ld,gy_mdps=%ld,gz_mdps=%ld,gyro_fresh=%u,gyro_calibrated=%u,gyro_samples=%lu,mag_aiding=%u,coast_ms=%lu,handling=%u,up_x=%ld,up_y=%ld,up_z=%ld\r\n",
             (unsigned long)now,(long)lroundf(GyroValue.x*1000.0f),
             (long)lroundf(GyroValue.y*1000.0f),(long)lroundf(GyroValue.z*1000.0f),
@@ -329,8 +294,7 @@ telemetry:
             (long)lroundf(Motion.attitude.up.x*1000.0f),
             (long)lroundf(Motion.attitude.up.y*1000.0f),
             (long)lroundf(Motion.attitude.up.z*1000.0f));
-        /* Startup evidence uses BODY-frame bias/residual mdps; all angle/rate
-         * values are centidegrees or centidegrees/s. No float printf required. */
+
         const P2_Attitude *f=&Motion.attitude;
         XPRINTF("P2HEAD,ms=%lu,bx=%ld,by=%ld,bz=%ld,rx=%ld,ry=%ld,rz=%ld,ns=%lu,nb=%lu,stable_ms=%lu,span_cd=%ld,ready=%u,zero=%u,status=%u,mag_cd=%ld,innovation_cd=%ld,correction_cdps=%ld,origin_cd=%ld,mag_budget_cd=%ld,mag_delta_cd=%ld,mag_blocked=%u,reference_lost=%u,recovery_ms=%lu,recovery_samples=%lu\r\n",
             (unsigned long)now,(long)lroundf(f->bias.x*1000.0f),
@@ -363,54 +327,27 @@ telemetry:
     }
 }
 
-/**
-  * @brief  Main program
-  * @param  None
-  * @retval None
-  */
 int main(void)
 {
-  
+
   HAL_Init();
 
-  // Configure the System clock
   SystemClock_Config();
 
   InitTargetPlatform();
 
-//  Initialize the BlueNRG
   Init_BlueNRG_Stack();
 
-// Initialize the BlueNRG Custom services
   Init_BlueNRG_Custom_Services();
 
-//  initialize timers
   InitTimers();
-//
+
   if(HAL_TIM_Base_Start_IT(&TimEnvHandle) != HAL_OK){
-    // Starting Error
+
     Error_Handler();
   }
   connected = FALSE;
 
-
-  //***************************************************
-  //***************** #CS704 **************************
-  //************ Initialise here **********************
-  //***************************************************
-  //***************************************************
-  //***************************************************
-
-  /* Advertising and GAP names are initialized together in Init_BlueNRG_Stack. */
-
-  /* Sensor configuration and motion state initialized in InitTargetPlatform. */
-  //***************************************************
-  //***************************************************
-  //************ Initialise ends **********************
-  //***************************************************
-
-
-  /* Infinite loop */
   while (1)
   {
       UART5_LogPoll();
@@ -419,63 +356,39 @@ int main(void)
           if (HAL_GetTick() - last_blink >= 500U) {
               last_blink = HAL_GetTick();
         	  BSP_LED_Toggle(LED1);
-//        	  HAL_UART_Transmit_IT(&UartHandle, (uint8_t*)BufferToWrite, 5);
+
           }
       }
     if(set_connectable){
 
-      /* Now update the BLE advertize data and make the Board connectable */
       setConnectable();
       set_connectable = FALSE;
     }
 
-    /* handle BLE event */
     if(HCI_ProcessEvent) {
       HCI_ProcessEvent=0;
       hci_user_evt_proc();
     }
 
-    //***************************************************
-    //***************************************************
-    //***************** #CS704 **************************
-    //*********** READ SENSORS & PROCESS ****************
-    //***************************************************
-    //***************************************************
-    //***************************************************
-
-    /* TIM4 polls at 100 Hz; data-ready gates processing to sensor ODR 50 Hz. */
     if (ReadSensor) {
         ReadSensor = 0;
         ProcessSensors();
     }
 
-    //***************************************************
-    //***************************************************
-
-
-    /* Motion Data */
     if(SendAccGyroMag) {
         SendAccGyroMag=0;
         SendMotionData();
     }
 
-    /* Wait for Event */
     __WFI();
   }
 }
 
-/**
-  * @brief  Initialize all the Target platform's Features
-  * @param  None
-  * @retval None
-  */
 void InitTargetPlatform(void)
 {
 
-
-  /* Initialize LED */
   BSP_LED_Init( LED1 );
-  /* Initialize UART */
+
   MX_UART5_UART_Init();
 
   P2_MotionInit(&Motion);
@@ -484,14 +397,8 @@ void InitTargetPlatform(void)
           P2_MAG_CALIBRATED ? "MEASURED_3D" : P2_MAG_CALIBRATION_LABEL);
   InitLSM();
 
-
 }
 
-/**
-  * @brief UART5 Initialization Function
-  * @param None
-  * @retval None
-  */
 void MX_UART5_UART_Init(void)
 {
   UartHandle.Instance = UART5;
@@ -503,10 +410,6 @@ void MX_UART5_UART_Init(void)
   UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
 
-//  if(HAL_UART_DeInit(&UartHandle) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
   if(HAL_UART_Init(&UartHandle) != HAL_OK)
   {
     Error_Handler();
@@ -537,8 +440,6 @@ void MX_USART1_UART_Init(void)
 
 }
 
-/* Main-context producer/consumer; UART IRQ only reads the active slot.
- * Keep that slot until HAL signals TX complete. No busy-wait, heap or flash. */
 static uint8_t LogQueue[P2_LOG_QUEUE_DEPTH][P2_LOG_LINE_BYTES];
 static uint16_t LogLengths[P2_LOG_QUEUE_DEPTH];
 static unsigned LogHead, LogTail, LogCount;
@@ -559,7 +460,7 @@ void UART5_Transmit(uint8_t* BufferToWrite, uint16_t BytesToWrite) {
     UART5_LogPoll();
     if (!BytesToWrite || BytesToWrite >= P2_LOG_LINE_BYTES || LogCount == P2_LOG_QUEUE_DEPTH) {
         if (LogDropped != UINT32_MAX) ++LogDropped;
-        return; /* Drop whole records, never truncate them into malformed lines. */
+        return;
     }
     memcpy(LogQueue[LogHead], BufferToWrite, BytesToWrite);
     LogLengths[LogHead] = BytesToWrite;
@@ -568,50 +469,28 @@ void UART5_Transmit(uint8_t* BufferToWrite, uint16_t BytesToWrite) {
     UART5_LogPoll();
 }
 
-
-/**
-  * @brief  Output Compare callback in non blocking mode 
-  * @param  htim : TIM OC handle
-  * @retval None
-  */
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
 {
   uint32_t uhCapture=0;
-  
 
-
-  /* TIM1_CH4 toggling with frequency = 20 Hz */
   if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
   {
      uhCapture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_4);
-    /* Set the Capture Compare Register value */
+
     __HAL_TIM_SET_COMPARE(&TimCCHandle, TIM_CHANNEL_4, (uhCapture + uhCCR4_Val));
     SendAccGyroMag=1;
   }
 }
 
-
-/**
-  * @brief  Period elapsed callback in non blocking mode for Environmental timer
-  * @param  htim : TIM handle
-  * @retval None
-  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-
 
   if(htim == (&TimEnvHandle)) {
 	  ReadSensor=1;
 
-
   }
 }
 
-/**
-  * @brief  Send Motion Data Acc/Mag/Gyro to BLE
-  * @param  None
-  * @retval None
-  */
 static void SendMotionData(void)
 {
   if (!connected || !W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG)) return;
@@ -619,19 +498,17 @@ static void SendMotionData(void)
   BSP_MOTION_SENSOR_Axes_t summary;
   BSP_MOTION_SENSOR_Axes_t acc = ACC_Value, mag = MAG_Value;
   uint32_t now = HAL_GetTick();
-  /* -32768 cannot be a valid configured sensor value. Preserve packet layout
-   * while explicitly marking stale raw channels; document this sentinel. */
+
   if (!HaveAcc || now-LastAccTick > P2_ACC_FRESH_MS)
       acc.x = acc.y = acc.z = INT16_MIN;
   if (!HaveMag || now-LastMagTick > P2_MAG_FRESH_MS)
       mag.x = mag.y = mag.z = INT16_MIN;
-  /* Avoid aliasing unrelated structs and signed 16-bit BLE wraparound. */
+
   summary.x = COMP_Value.Steps > 3276U ? 3276 : (int32_t)COMP_Value.Steps;
   bool heading_fresh=HaveAcc && HaveMag && HaveGyro &&
       now-LastGyroTick<=P2_GYRO_FRESH_MS && now-LastAccTick<=P2_ACC_FRESH_MS &&
       now-LastMagTick<=P2_MAG_FRESH_MS;
-  /* Preserve fresh diagnostic sentinels, including nonfinite-angle failures.
-   * Stale sensors always override the cached value with unavailable. */
+
   summary.y = heading_fresh && COMP_Value.Heading < 0 ? COMP_Value.Heading :
       P2_HeadingWire((float)COMP_Value.Heading, Motion.heading_valid && heading_fresh,
       heading_fresh ? Motion.heading_status : P2_HEADING_UNAVAILABLE);
@@ -640,111 +517,76 @@ static void SendMotionData(void)
       BleErrors != UINT32_MAX) ++BleErrors;
 }
 
-
-
-/**
-* @brief  Function for initializing timers for sending the information to BLE:
- *  - 1 for sending MotionFX/AR/CP and Acc/Gyro/Mag
- *  - 1 for sending the Environmental info
- * @param  None
- * @retval None
- */
 static void InitTimers(void)
 {
-  
-  uint32_t uwPrescalerValue;
-  
-  /* Timer Output Compare Configuration Structure declaration */
-  TIM_OC_InitTypeDef sConfig;
-  
-  /* Compute the prescaler value to have TIM4 counter clock equal to 10 KHz Hz */
 
- // #CS704 -  change TIM4 configuration here to change frequency of execution of *** READ Sensor and Process Block **
+  uint32_t uwPrescalerValue;
+
+  TIM_OC_InitTypeDef sConfig;
+
   uwPrescalerValue = (uint32_t) ((SystemCoreClock / 10000) - 1);
 
-  /* Set TIM4 instance ( Environmental ) */
   TimEnvHandle.Instance = TIM4;
-  /* Initialize TIM4 peripheral */
-  TimEnvHandle.Init.Period = 99; /* 10 kHz / 100 = 100 Hz polling */
+
+  TimEnvHandle.Init.Period = 99;
   TimEnvHandle.Init.Prescaler = uwPrescalerValue;
   TimEnvHandle.Init.ClockDivision = 0;
   TimEnvHandle.Init.CounterMode = TIM_COUNTERMODE_UP;
   if(HAL_TIM_Base_Init(&TimEnvHandle) != HAL_OK) {
-    /* Initialization Error */
+
     Error_Handler();
   }
 
+  uwPrescalerValue = (uint32_t) ((SystemCoreClock / 10000) - 1);
 
-  /* Compute the prescaler value to have TIM1 counter clock equal to 10 KHz */
-  uwPrescalerValue = (uint32_t) ((SystemCoreClock / 10000) - 1); 
-  
-  /* Set TIM1 instance ( Motion ) */
-  TimCCHandle.Instance = TIM1;  
+  TimCCHandle.Instance = TIM1;
   TimCCHandle.Init.Period        = 65535;
   TimCCHandle.Init.Prescaler     = uwPrescalerValue;
   TimCCHandle.Init.ClockDivision = 0;
   TimCCHandle.Init.CounterMode   = TIM_COUNTERMODE_UP;
   if(HAL_TIM_OC_Init(&TimCCHandle) != HAL_OK)
   {
-    /* Initialization Error */
+
     Error_Handler();
   }
-  
- /* Configure the Output Compare channels */
- /* Common configuration for all channels */
+
   sConfig.OCMode     = TIM_OCMODE_TOGGLE;
   sConfig.OCPolarity = TIM_OCPOLARITY_LOW;
 
-  /* Code for MotionFX integration - Start Section */
-  /* Output Compare Toggle Mode configuration: Channel1 */
   sConfig.Pulse = DEFAULT_uhCCR1_Val;
   if(HAL_TIM_OC_ConfigChannel(&TimCCHandle, &sConfig, TIM_CHANNEL_1) != HAL_OK)
   {
-    /* Configuration Error */
+
     Error_Handler();
   }
-  /* Code for MotionFX integration - End Section */
 
-  /* Code for MotionCP & MotionGR integration - Start Section */
-  /* Output Compare Toggle Mode configuration: Channel2 */
   sConfig.Pulse = DEFAULT_uhCCR2_Val;
   if(HAL_TIM_OC_ConfigChannel(&TimCCHandle, &sConfig, TIM_CHANNEL_2) != HAL_OK)
   {
-    /* Configuration Error */
+
     Error_Handler();
   }
-  /* Code for MotionCP & MotionGR integration - End Section */
 
-  /* Code for MotionAR & MotionID & MotionPE integration - Start Section */
-  /* Output Compare Toggle Mode configuration: Channel3 */
   sConfig.Pulse = DEFAULT_uhCCR3_Val;
   if(HAL_TIM_OC_ConfigChannel(&TimCCHandle, &sConfig, TIM_CHANNEL_3) != HAL_OK)
   {
-    /* Configuration Error */
+
     Error_Handler();
   }
-  /* Code for MotionAR & MotionID & MotionPE integration - End Section */
 
-  /* Output Compare Toggle Mode configuration: Channel4 */
   sConfig.Pulse = DEFAULT_uhCCR4_Val;
   if(HAL_TIM_OC_ConfigChannel(&TimCCHandle, &sConfig, TIM_CHANNEL_4) != HAL_OK)
   {
-    /* Configuration Error */
+
     Error_Handler();
   }
 }
 
-
-/**
-  * @brief  Set all sensor Chip Select high. To be called before any SPI read/write
-  * @param  None
-  * @retval HAL_StatusTypeDef HAL Status
-  */
 uint8_t Sensor_IO_SPI_CS_Init_All(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct;
   uint8_t inData[2];
-  /* Set all the pins before init to avoid glitch */
+
   BSP_LSM6DSM_CS_GPIO_CLK_ENABLE();
   BSP_LSM303AGR_M_CS_GPIO_CLK_ENABLE();
   BSP_LSM303AGR_X_CS_GPIO_CLK_ENABLE();
@@ -775,12 +617,8 @@ uint8_t Sensor_IO_SPI_CS_Init_All(void)
   HAL_GPIO_Init(BSP_LPS22HB_CS_PORT, &GPIO_InitStruct);
   HAL_GPIO_WritePin(BSP_LPS22HB_CS_PORT, BSP_LPS22HB_CS_PIN, GPIO_PIN_SET);
 
-
-  //setup SPI interface
     if (BSP_SPI2_Init() != BSP_ERROR_NONE) return HAL_ERROR;
 
-  //disable I2C modes on all SPI devices
-  //LSM303 Mag
   HAL_GPIO_WritePin(BSP_LSM303AGR_M_CS_PORT, BSP_LSM303AGR_M_CS_PIN, GPIO_PIN_RESET);
   inData[0] = (0x62U);
   BSP_SPI2_Send(inData,1);
@@ -788,7 +626,6 @@ uint8_t Sensor_IO_SPI_CS_Init_All(void)
   BSP_SPI2_Send(inData,1);
   HAL_GPIO_WritePin(BSP_LSM303AGR_M_CS_PORT, BSP_LSM303AGR_M_CS_PIN, GPIO_PIN_SET);
 
-  //LSM303 Acc
   HAL_GPIO_WritePin(BSP_LSM303AGR_X_CS_PORT, BSP_LSM303AGR_X_CS_PIN, GPIO_PIN_RESET);
   inData[0] = (0x23U);
   BSP_SPI2_Send(inData,1);
@@ -796,7 +633,6 @@ uint8_t Sensor_IO_SPI_CS_Init_All(void)
   BSP_SPI2_Send(inData,1);
   HAL_GPIO_WritePin(BSP_LSM303AGR_X_CS_PORT, BSP_LSM303AGR_X_CS_PIN, GPIO_PIN_SET);
 
-  //LPS22HB
   HAL_GPIO_WritePin(BSP_LPS22HB_CS_PORT, BSP_LPS22HB_CS_PIN, GPIO_PIN_RESET);
   inData[0] = (0x10U);
   BSP_SPI2_Send(inData,1);
@@ -804,7 +640,6 @@ uint8_t Sensor_IO_SPI_CS_Init_All(void)
   BSP_SPI2_Send(inData,1);
   HAL_GPIO_WritePin(BSP_LPS22HB_CS_PORT, BSP_LPS22HB_CS_PIN, GPIO_PIN_SET);
 
-  //LSM6DSM
   HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT, BSP_LSM6DSM_CS_PIN, GPIO_PIN_RESET);
   inData[0] = (0x12U);
   BSP_SPI2_Send(inData,1);
@@ -812,24 +647,15 @@ uint8_t Sensor_IO_SPI_CS_Init_All(void)
   BSP_SPI2_Send(inData,1);
   HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT, BSP_LSM6DSM_CS_PIN, GPIO_PIN_SET);
 
-
   return HAL_OK;
 }
 
-/**
- * @brief  Write register by SPI bus for LSM303AGR
- * @param  Reg the starting register address to be written
- * @param  pdata the pointer to the data to be written
- * @param  len the length of the data to be written
- * @retval BSP status
- */
 static int32_t BSP_LSM303AGR_WriteReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t len)
 {
   int32_t ret = BSP_ERROR_NONE;
   uint8_t dataReg = (uint8_t)Reg;
   SpiFault = 0;
 
-  /* CS Enable */
   LSM_MAG_CS_LOW();
 
   if (BSP_SPI2_Send(&dataReg, 1) != 1)
@@ -842,28 +668,19 @@ static int32_t BSP_LSM303AGR_WriteReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t
     ret = BSP_ERROR_UNKNOWN_FAILURE;
   }
 
-  /* CS Disable */
   LSM_MAG_CS_HIGH();
 
   return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : ret;
 }
 
-/**
-* @brief  Read register by SPI bus for LSM303AGR
-* @param  Reg the starting register address to be read
-* @param  pdata the pointer to the data to be read
-* @param  len the length of the data to be read
-* @retval BSP status
-*/
 static int32_t BSP_LSM303AGR_ReadReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t len)
 {
   int32_t ret = BSP_ERROR_NONE;
   uint8_t dataReg = (uint8_t)Reg;
   SpiFault = 0;
 
-  /* CS Enable */
   HAL_GPIO_WritePin(BSP_LSM303AGR_M_CS_PORT, BSP_LSM303AGR_M_CS_PIN, GPIO_PIN_RESET);
-//  XPRINTF("Data Read = %d,%d\r\n",(dataReg) | 0x80,pdata[0]);
+
   LSM303AGR_SPI_Write(&hbusspi2, (dataReg) | 0x80);
   __HAL_SPI_DISABLE(&hbusspi2);
   SPI_1LINE_RX(&hbusspi2);
@@ -877,27 +694,18 @@ static int32_t BSP_LSM303AGR_ReadReg_Mag(uint16_t Reg, uint8_t *pdata, uint16_t 
     LSM303AGR_SPI_Read(&hbusspi2, (pdata));
   }
 
-  /* CS Disable */
   HAL_GPIO_WritePin(BSP_LSM303AGR_M_CS_PORT, BSP_LSM303AGR_M_CS_PIN, GPIO_PIN_SET);
   SPI_1LINE_TX(&hbusspi2);
   __HAL_SPI_ENABLE(&hbusspi2);
   return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : ret;
 }
 
-/**
- * @brief  Write register by SPI bus for LSM303AGR
- * @param  Reg the starting register address to be written
- * @param  pdata the pointer to the data to be written
- * @param  len the length of the data to be written
- * @retval BSP status
- */
 static int32_t BSP_LSM303AGR_WriteReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t len)
 {
   int32_t ret = BSP_ERROR_NONE;
   uint8_t dataReg = (uint8_t)Reg;
   SpiFault = 0;
 
-  /* CS Enable */
   LSM_ACC_CS_LOW();
 
   if (BSP_SPI2_Send(&dataReg, 1) != 1)
@@ -910,26 +718,17 @@ static int32_t BSP_LSM303AGR_WriteReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t
     ret = BSP_ERROR_UNKNOWN_FAILURE;
   }
 
-  /* CS Disable */
   LSM_ACC_CS_HIGH();
 
   return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : ret;
 }
 
-/**
-* @brief  Read register by SPI bus for LSM303AGR
-* @param  Reg the starting register address to be read
-* @param  pdata the pointer to the data to be read
-* @param  len the length of the data to be read
-* @retval BSP status
-*/
 static int32_t BSP_LSM303AGR_ReadReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t len)
 {
   int32_t ret = BSP_ERROR_NONE;
   uint8_t dataReg = (uint8_t)Reg;
   SpiFault = 0;
 
-  /* CS Enable */
   LSM_ACC_CS_LOW();
   if (len > 1) {
 	  LSM303AGR_SPI_Write(&hbusspi2, (dataReg) | 0x80 | 0x40);
@@ -949,20 +748,17 @@ static int32_t BSP_LSM303AGR_ReadReg_Acc(uint16_t Reg, uint8_t *pdata, uint16_t 
     LSM303AGR_SPI_Read(&hbusspi2, (pdata));
   }
 
-  /* CS Disable */
   LSM_ACC_CS_HIGH();
   SPI_1LINE_TX(&hbusspi2);
   __HAL_SPI_ENABLE(&hbusspi2);
   return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : ret;
 }
 
-/* LSM6DSM shares the 3-wire SPI bus, but uses CTRL3_C.IF_INC rather
- * than an address-bit burst flag. Always restore TX mode and release CS. */
 static int32_t P2_GyroWriteReg(uint16_t reg, uint8_t *data, uint16_t len) {
     if (!data || !len) return BSP_ERROR_UNKNOWN_FAILURE;
     SpiFault=0;
     HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_RESET);
-    /* Reuse bounded polling rather than BSP_SPI2_Send's 1-second timeout. */
+
     LSM303AGR_SPI_Write(&hbusspi2,(uint8_t)reg);
     for (uint16_t i=0U;i<len && !SpiFault;++i) LSM303AGR_SPI_Write(&hbusspi2,data[i]);
     HAL_GPIO_WritePin(BSP_LSM6DSM_CS_PORT,BSP_LSM6DSM_CS_PIN,GPIO_PIN_SET);
@@ -985,23 +781,14 @@ static int32_t P2_GyroReadReg(uint16_t reg, uint8_t *data, uint16_t len) {
     return SpiFault ? BSP_ERROR_UNKNOWN_FAILURE : BSP_ERROR_NONE;
 }
 
-
-/**
-* @brief  This function reads multiple bytes on SPI 3-wire.
-* @param  xSpiHandle: SPI Handler.
-* @param  val: value.
-* @param  nBytesToRead: number of bytes to read.
-* @retval None
-*/
 void LSM303AGR_SPI_Read_nBytes(SPI_HandleTypeDef* xSpiHandle, uint8_t *val, uint16_t nBytesToRead)
 {
-  /* Interrupts should be disabled during this operation */
+
   uint32_t saved_mask = __get_PRIMASK();
   uint32_t budget = 100000U;
   __disable_irq();
   __HAL_SPI_ENABLE(xSpiHandle);
 
-  /* Transfer loop */
   while (nBytesToRead > 1U)
   {
     if (--budget == 0U) {
@@ -1010,19 +797,15 @@ void LSM303AGR_SPI_Read_nBytes(SPI_HandleTypeDef* xSpiHandle, uint8_t *val, uint
       __set_PRIMASK(saved_mask);
       return;
     }
-    /* Check the RXNE flag */
+
     if (xSpiHandle->Instance->SR & SPI_FLAG_RXNE)
     {
-      /* read the received data */
+
       *val = *(__IO uint8_t *) &xSpiHandle->Instance->DR;
       val += sizeof(uint8_t);
       nBytesToRead--;
     }
   }
-  /* In master RX mode the clock is automaticaly generated on the SPI enable.
-  So to guarantee the clock generation for only one data, the clock must be
-  disabled after the first bit and before the latest bit of the last Byte received */
-  /* __DSB instruction are inserted to garantee that clock is Disabled in the right timeframe */
 
   __DSB();
   __DSB();
@@ -1032,24 +815,14 @@ void LSM303AGR_SPI_Read_nBytes(SPI_HandleTypeDef* xSpiHandle, uint8_t *val, uint
 
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_RXNE) != SPI_FLAG_RXNE) { if (--budget == 0U) { SpiFault = 1; return; } }
-  /* read the received data */
+
   *val = *(__IO uint8_t *) &xSpiHandle->Instance->DR;
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_BSY) == SPI_FLAG_BSY) { if (--budget == 0U) { SpiFault = 1; return; } }
 }
 
-/**
-* @brief  This function send a command through SPI bus.
-* @param  command: command id.
-* @param  uint8_t val: value.
-* @retval None
-*/
 void LSM303AGR_SPI_Read(SPI_HandleTypeDef* xSpiHandle, uint8_t *val)
 {
-  /* In master RX mode the clock is automaticaly generated on the SPI enable.
-  So to guarantee the clock generation for only one data, the clock must be
-  disabled after the first bit and before the latest bit */
-  /* Interrupts should be disabled during this operation */
 
   uint32_t saved_mask = __get_PRIMASK();
   uint32_t budget = 100000U;
@@ -1060,54 +833,30 @@ void LSM303AGR_SPI_Read(SPI_HandleTypeDef* xSpiHandle, uint8_t *val)
   __HAL_SPI_DISABLE(xSpiHandle);
   __set_PRIMASK(saved_mask);
 
-
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_RXNE) != SPI_FLAG_RXNE) { if (--budget == 0U) { SpiFault = 1; return; } }
-  /* read the received data */
-//  XPRINTF("Before READ, %d,%d\r\n",val[0],xSpiHandle->Instance);
+
   *val = *(__IO uint8_t *) &xSpiHandle->Instance->DR;
-//  XPRINTF("READ, %d\r\n",val[0]);
+
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_BSY) == SPI_FLAG_BSY) { if (--budget == 0U) { SpiFault = 1; return; } }
 }
 
-/**
-* @brief  This function send a command through SPI bus.
-* @param  command : command id.
-* @param  val : value.
-* @retval None
-*/
 void LSM303AGR_SPI_Write(SPI_HandleTypeDef* xSpiHandle, uint8_t val)
 {
   uint32_t budget;
-  /* check TXE flag */
+
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_TXE) != SPI_FLAG_TXE) { if (--budget == 0U) { SpiFault = 1; return; } }
 
-  /* Write the data */
   *((__IO uint8_t*) &xSpiHandle->Instance->DR) = val;
 
-  /* Wait BSY flag */
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_FTLVL) != SPI_FTLVL_EMPTY) { if (--budget == 0U) { SpiFault = 1; return; } }
   budget = 100000U;
   while ((xSpiHandle->Instance->SR & SPI_FLAG_BSY) == SPI_FLAG_BSY) { if (--budget == 0U) { SpiFault = 1; return; } }
 }
 
-
-
-
-/**
-* @brief  Function for De-initializing timers:
- *  - 1 for sending MotionFX/AR/CP and Acc/Gyro/Mag
- *  - 1 for sending the Environmental info
- * @param  None
- * @retval None
- */
-/** @brief Initialize the BlueNRG Stack
- * @param None
- * @retval None
- */
 static void Init_BlueNRG_Stack(void)
 {
   char BoardName[8] = P2_BLE_NAME;
@@ -1116,33 +865,27 @@ static void Init_BlueNRG_Stack(void)
   uint8_t  data_len_out;
   uint8_t  hwVersion;
   uint16_t fwVersion;
-  
 
-
-  /* Keep scan-list, connected-device and UART identities consistent. */
   for (unsigned i = 0U; i < sizeof(BoardName) - 1U; ++i)
     NodeName[i + 1U] = (uint8_t)BoardName[i];
-  
-  /* Initialize the BlueNRG SPI driver */
+
   hci_init(HCI_Event_CB, NULL);
 
-  /* get the BlueNRG HW and FW versions */
   getBlueNRGVersion(&hwVersion, &fwVersion);
-  
+
   aci_hal_read_config_data(CONFIG_DATA_RANDOM_ADDRESS, 6, &data_len_out, bdaddr);
 
   if ((bdaddr[5] & 0xC0) != 0xC0) {
     XPRINTF("P2ERROR,invalid_ble_address\r\n");
     while(1);
   }
-  
+
   ret = aci_hal_write_config_data(CONFIG_DATA_PUBADDR_OFFSET, data_len_out,
                                   bdaddr);
-  
-/* Sw reset of the device */
+
   hci_reset();
 
-  ret = aci_gatt_init();    
+  ret = aci_gatt_init();
   if(ret){
      XPRINTF("P2ERROR,gatt_init_failed\r\n");
      goto fail;
@@ -1156,7 +899,7 @@ static void Init_BlueNRG_Stack(void)
   }
 
   ret = aci_gatt_update_char_value(service_handle, dev_name_char_handle, 0,
-                                   7/*strlen(BoardName)*/, (uint8_t *)BoardName);
+                                   7 , (uint8_t *)BoardName);
 
   if(ret){
      XPRINTF("P2ERROR,ble_name_update_failed\r\n");
@@ -1185,7 +928,6 @@ static void Init_BlueNRG_Stack(void)
          BoardName,
          bdaddr[5],bdaddr[4],bdaddr[3],bdaddr[2],bdaddr[1],bdaddr[0]);
 
-  /* Set output power level */
   aci_hal_set_tx_power_level(1,4);
 
   return;
@@ -1194,14 +936,10 @@ fail:
   return;
 }
 
-/** @brief Initialize all the Custom BlueNRG services
- * @param None
- * @retval None
- */
 static void Init_BlueNRG_Custom_Services(void)
 {
   int ret;
-  
+
   ret = Add_HW_SW_ServW2ST_Service();
   if(ret == BLE_STATUS_SUCCESS)
   {
@@ -1214,45 +952,23 @@ static void Init_BlueNRG_Custom_Services(void)
 
 }
 
-/**
-  * @brief  System Clock Configuration
-  *         The system Clock is configured as follow : 
-  *            System Clock source            = PLL (MSI)
-  *            SYSCLK(Hz)                     = 80000000
-  *            HCLK(Hz)                       = 80000000
-  *            AHB Prescaler                  = 1
-  *            APB1 Prescaler                 = 1
-  *            APB2 Prescaler                 = 1
-  *            MSI Frequency(Hz)              = 4000000
-  *            PLL_M                          = 6
-  *            PLL_N                          = 40
-  *            PLL_R                          = 4
-  *            PLL_P                          = 7
-  *            PLL_Q                          = 4
-  *            Flash Latency(WS)              = 4
-  * @param  None
-  * @retval None
-  */
 static void SystemClock_Config(void)
 {
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-  
+
   __HAL_RCC_PWR_CLK_ENABLE();
   HAL_PWR_EnableBkUpAccess();
-  
-  /* Enable the LSE Oscilator */
+
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK){
     while(1);
   }
-  
-  /* Enable the CSS interrupt in case LSE signal is corrupted or not present */
+
   HAL_RCCEx_DisableLSECSS();
-  
-  /* Enable MSI Oscillator and activate PLL with MSI as source */
+
   RCC_OscInitStruct.OscillatorType      = RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.MSIState            = RCC_MSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
@@ -1267,24 +983,16 @@ static void SystemClock_Config(void)
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK){
     while(1);
   }
-  
+
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
   PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
   if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     while(1);
   }
-  
-  /* Enable MSI Auto-calibration through LSE */
+
   HAL_RCCEx_EnableMSIPLLMode();
-  
-  /* Select MSI output as USB clock source */
-//  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_USB;
-//  PeriphClkInitStruct.UsbClockSelection = RCC_USBCLKSOURCE_MSI;
-//  HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct);
-  
-  /* Select PLL as system clock source and configure the HCLK, PCLK1 and PCLK2 
-  clocks dividers */
+
   RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
@@ -1295,18 +1003,6 @@ static void SystemClock_Config(void)
   }
 }
 
-
-
-
-
-
-/**
-  * @brief This function provides accurate delay (in milliseconds) based 
-  *        on variable incremented.
-  * @note This is a user implementation using WFI state
-  * @param Delay: specifies the delay time length, in milliseconds.
-  * @retval None
-  */
 void HAL_Delay(__IO uint32_t Delay)
 {
   uint32_t tickstart = 0;
@@ -1316,53 +1012,29 @@ void HAL_Delay(__IO uint32_t Delay)
   }
 }
 
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @param  None
-  * @retval None
-  */
 void Error_Handler(void)
 {
-  /* Distinguishable failure indication; no fake motion on initialization failure. */
+
   while (1) { BSP_LED_Toggle(LED1); HAL_Delay(150); }
 }
 
-/**
- * @brief  EXTI line detection callback.
- * @param  uint16_t GPIO_Pin Specifies the pins connected EXTI line
- * @retval None
- */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{  
+{
   switch(GPIO_Pin){
-  case HCI_TL_SPI_EXTI_PIN: 
+  case HCI_TL_SPI_EXTI_PIN:
       hci_tl_lowlevel_isr();
       HCI_ProcessEvent=1;
     break;
 
-//  case BSP_LSM6DSM_INT2:
-//    MEMSInterrupt=1;
-//    break;
   }
 }
 
 #ifdef  USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t* file, uint32_t line)
-{ 
-  /* User can add his own implementation to report the file name and line number,
-     ex: ALLMEMS1_PRINTF("Wrong parameters value: file %s on line %d\r\n", file, line) */
 
-  /* Infinite loop */
+void assert_failed(uint8_t* file, uint32_t line)
+{
+
   while (1){
   }
 }
 #endif
-
-
