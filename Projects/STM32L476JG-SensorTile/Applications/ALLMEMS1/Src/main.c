@@ -370,6 +370,7 @@ int main(void)
       hci_user_evt_proc();
     }
 
+    /* Interrupts schedule work; sensor I/O and motion processing run in the main loop. */
     if (ReadSensor) {
         ReadSensor = 0;
         ProcessSensors();
@@ -380,6 +381,7 @@ int main(void)
         SendMotionData();
     }
 
+    /* Sleep until an interrupt; WFI does not generate timer interrupts. */
     __WFI();
   }
 }
@@ -493,17 +495,20 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 static void SendMotionData(void)
 {
+  /* A BLE connection alone is insufficient: the client must enable notifications. */
   if (!connected || !W2ST_CHECK_CONNECTION(W2ST_CONNECT_ACC_GYRO_MAG)) return;
 
   BSP_MOTION_SENSOR_Axes_t summary;
   BSP_MOTION_SENSOR_Axes_t acc = ACC_Value, mag = MAG_Value;
   uint32_t now = HAL_GetTick();
 
+  /* Mark stale samples invalid instead of presenting old values as fresh readings. */
   if (!HaveAcc || now-LastAccTick > P2_ACC_FRESH_MS)
       acc.x = acc.y = acc.z = INT16_MIN;
   if (!HaveMag || now-LastMagTick > P2_MAG_FRESH_MS)
       mag.x = mag.y = mag.z = INT16_MIN;
 
+  /* Gyro slots carry project outputs; cap steps before the packet's x10 scaling. */
   summary.x = COMP_Value.Steps > 3276U ? 3276 : (int32_t)COMP_Value.Steps;
   bool heading_fresh=HaveAcc && HaveMag && HaveGyro &&
       now-LastGyroTick<=P2_GYRO_FRESH_MS && now-LastAccTick<=P2_ACC_FRESH_MS &&

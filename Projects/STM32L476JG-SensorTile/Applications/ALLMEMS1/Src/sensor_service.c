@@ -105,6 +105,7 @@ tBleStatus AccGyroMag_Update(BSP_MOTION_SENSOR_Axes_t *Acc,BSP_MOTION_SENSOR_Axe
 {
   tBleStatus ret;
 
+  /* 20 bytes: timestamp, acceleration XYZ, project summary XYZ, magnetic XYZ. */
   uint8_t buff[2+3*3*2];
 
   STORE_LE_16(buff   ,(HAL_GetTick()>>3));
@@ -113,6 +114,8 @@ tBleStatus AccGyroMag_Update(BSP_MOTION_SENSOR_Axes_t *Acc,BSP_MOTION_SENSOR_Axe
   P2_PutI16(buff+4,Acc->y);
   P2_PutI16(buff+6,Acc->z);
 
+  /* ST divides gyro fields by ten: X is steps, Y heading, Z distance.
+     Heading and distance arrive pre-scaled; only steps are scaled here. */
   P2_PutI16(buff+8,Gyro->x*10);
   P2_PutI16(buff+10,Gyro->y);
   P2_PutI16(buff+12,Gyro->z);
@@ -231,6 +234,7 @@ void Attribute_Modified_CB(uint16_t attr_handle, uint8_t * att_data, uint8_t dat
 
 }
 
+/* Client notification enable/disable controls the periodic BLE send timer. */
 static void AccGyroMag_AttributeModified_CB(uint8_t *att_data)
 {
   if (att_data[0] == 01) {

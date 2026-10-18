@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <math.h>
 
+/* Valid headings wrap to 0..359; negative values encode unavailable/status states. */
 static inline int32_t P2_HeadingDisplay(float degrees, int valid, unsigned status) {
     if (!valid) return -32768 + (status >= 1U && status <= 4U ? (int32_t)status-1 : 0);
     if (!isfinite(degrees)) return -32764;
@@ -12,10 +13,12 @@ static inline int32_t P2_HeadingDisplay(float degrees, int valid, unsigned statu
     return (int32_t)lroundf(wrapped) % 360;
 }
 
+/* The ST gyro decoder divides by ten; leave negative status codes unscaled. */
 static inline int32_t P2_HeadingWire(float degrees, int valid, unsigned status) {
     int32_t display = P2_HeadingDisplay(degrees, valid, status);
     return display >= 0 ? display * 10 : display;
 }
+/* Saturate to signed 16 bits, then write least-significant byte first. */
 static inline void P2_PutI16(uint8_t *p, int32_t value) {
     if (value > 32767) value = 32767;
     if (value < -32768) value = -32768;

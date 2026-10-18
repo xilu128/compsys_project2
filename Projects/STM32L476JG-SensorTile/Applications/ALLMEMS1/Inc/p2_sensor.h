@@ -7,6 +7,7 @@ typedef int32_t (*P2_RegisterIO)(uint16_t reg, uint8_t *data, uint16_t length);
 typedef struct { P2_RegisterIO read_acc, write_acc, read_mag, write_mag; } P2_SensorBus;
 bool P2_SensorInit(const P2_SensorBus *bus);
 
+/* Read functions return 1 for a fresh sample, 0 if not ready, -1 on I/O failure. */
 int P2_SensorReadAcc(const P2_SensorBus *bus, P2_Vector *sample);
 int P2_SensorReadMag(const P2_SensorBus *bus, P2_Vector *sample);
 

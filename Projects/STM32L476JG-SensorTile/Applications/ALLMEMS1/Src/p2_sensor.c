@@ -1,4 +1,5 @@
 #include "p2_sensor.h"
+/* Read back each configuration write to detect bus or register failures. */
 static bool configure(P2_RegisterIO read, P2_RegisterIO write, uint16_t reg, uint8_t value) {
     uint8_t actual = 0;
     return write(reg, &value, 1) == 0 && read(reg, &actual, 1) == 0 && actual == value;
@@ -8,6 +9,8 @@ bool P2_SensorInit(const P2_SensorBus *b) {
     if (b->read_acc(0x0F, &acc_id, 1) || b->read_mag(0x4F, &mag_id, 1) ||
         acc_id != 0x33 || mag_id != 0x40) return false;
 
+    /* Accelerometer: BDU, +/-4 g, 12-bit high resolution, 3-wire SPI, 50 Hz.
+       Magnetometer: BDU, offset cancellation, temperature compensation, 50 Hz. */
     return configure(b->read_acc, b->write_acc, 0x23, 0x99) &&
            configure(b->read_acc, b->write_acc, 0x20, 0x47) &&
            configure(b->read_mag, b->write_mag, 0x62, 0x30) &&
@@ -15,6 +18,7 @@ bool P2_SensorInit(const P2_SensorBus *b) {
            configure(b->read_mag, b->write_mag, 0x60, 0x88);
 
 }
+/* Decode a little-endian two's-complement register pair without unsigned wrap. */
 static int32_t signed_word(const uint8_t *p) {
     uint32_t u = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
     return u >= 32768U ? (int32_t)u - 65536 : (int32_t)u;
@@ -22,6 +26,7 @@ static int32_t signed_word(const uint8_t *p) {
 static int read_axes(P2_RegisterIO read, uint16_t status, uint16_t output, float scale, P2_Vector *v) {
     uint8_t ready, data[6];
     if (read(status, &ready, 1)) return -1;
+    /* ZYXDA gates reads; BDU keeps each low/high register pair consistent. */
     if (!(ready & 0x08U)) return 0;
     if (read(output, data, 6)) return -1;
     v->x = signed_word(data) * scale;
@@ -30,9 +35,11 @@ static int read_axes(P2_RegisterIO read, uint16_t status, uint16_t output, float
     return 1;
 }
 int P2_SensorReadAcc(const P2_SensorBus *b, P2_Vector *v) {
+    /* Left-aligned 12-bit data: divide by 16, then use approximately 2 mg/count. */
     return read_axes(b->read_acc, 0x27, 0x28, 2.0f/16.0f, v);
 }
 int P2_SensorReadMag(const P2_SensorBus *b, P2_Vector *v) {
+    /* Magnetometer sensitivity is 1.5 mGauss per signed count. */
     return read_axes(b->read_mag, 0x67, 0x68, 1.5f, v);
 }
 
@@ -59,6 +66,7 @@ int P2_GyroRead(const P2_GyroBus *b, P2_Vector *v) {
     if (!(ready & 0x02U)) return 0;
     if (b->read(0x22, data, sizeof data)) return -1;
 
+    /* At +/-2000 dps, 70 mdps/count converts to degrees per second. */
     v->x = signed_word(data) * 0.07f;
     v->y = signed_word(data + 2) * 0.07f;
     v->z = signed_word(data + 4) * 0.07f;

@@ -19,6 +19,7 @@ static P2_Vector times(P2_Vector v, float k) { return (P2_Vector){v.x*k,v.y*k,v.
 static P2_Vector unit(P2_Vector v) { return times(v,1.0f/fmaxf(norm(v),0.000001f)); }
 static float clamp1(float x) { return fmaxf(-1.0f,fminf(1.0f,x)); }
 
+/* Rodrigues rotation; the axis is normalized and the angle is in radians. */
 static P2_Vector rotate(P2_Vector v, P2_Vector axis, float angle) {
     float c=cosf(angle), sn=sinf(angle), d=dot3(axis,v)*(1.0f-c);
     P2_Vector cv=cross3(axis,v);
@@ -44,6 +45,7 @@ void P2_MotionRequireGyro(P2_Motion *s) {
     s->attitude.required=true;
     s->heading_valid=false;
 }
+/* Map the gyro mounting axes into the accelerometer/magnetometer body frame. */
 P2_Vector P2_GyroToBody(P2_Vector native) {
 
     return (P2_Vector){-native.y,-native.x,-native.z};
@@ -72,6 +74,7 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
         f->ready=f->recovering=false; f->count=0U; s->heading_valid=false;
         reset_startup(f);
     }
+    /* Estimate gyro bias only while acceleration and angular rate are stable. */
     if (!f->calibrated) {
 
         if (!s->initialized || now-s->last_ms>P2_ACC_FRESH_MS ||
@@ -106,6 +109,7 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
     if (f->rate>0.000001f) {
 
         P2_Vector axis=times(rate,1.0f/f->rate);
+        /* Fixed reference vectors rotate opposite to the board in body coordinates. */
         float angle=-f->rate*elapsed*0.00001745329252f;
         f->up=rotate(f->up,axis,angle);
         f->north=rotate(f->north,axis,angle);
@@ -113,6 +117,7 @@ void P2_MotionGyro(P2_Motion *s, P2_Vector rate, uint32_t now) {
     }
 }
 
+/* Establish the reference from consistent windows, not elapsed time alone. */
 static bool startup_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t now) {
     P2_HeadingStartup *q=&f->startup;
     if (q->samples && now==q->last_ms) return false;
@@ -174,6 +179,7 @@ static bool startup_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t no
     return true;
 }
 
+/* Correct gravity direction only when acceleration is compatible with rest. */
 static void correct_tilt(P2_Motion *s, P2_Vector a, float magnitude, float dt) {
     P2_Attitude *f=&s->attitude;
     if (!f->ready) return;
@@ -222,6 +228,7 @@ static bool magnetic_consistent(P2_MagneticGuard *g, float innovation, uint32_t 
     return !g->blocked && now-g->verified_ms<=P2_MAG_GUARD_BLOCK_MS+P2_MAG_FRESH_MS;
 }
 
+/* Reacquire attitude without changing the stored heading origin or step count. */
 static bool recover_reference(P2_Attitude *f, P2_Vector m, float mn, uint32_t now) {
     P2_HeadingStartup *q=&f->recovery;
     if (q->samples && now==q->last_ms) return false;
@@ -287,6 +294,7 @@ static bool fused_heading(P2_Motion *s, P2_Vector m, float *degrees) {
     float d=dot3(m,f->up);
     P2_Vector horizontal={m.x-d*f->up.x,m.y-d*f->up.y,m.z-d*f->up.z};
     float hn=norm(horizontal);
+    /* Reject magnetic corrections with inconsistent strength, dip or heading. */
     bool plausible=isfinite(mn) && mn>=P2_MAG_MIN_MGAUSS && mn<=P2_MAG_MAX_MGAUSS &&
         hn>=P2_HORIZONTAL_MIN_MGAUSS &&
         fabsf(mn-f->field_norm)<=P2_FUSION_MAG_STRENGTH_RATIO*f->field_norm &&
@@ -306,6 +314,7 @@ static bool fused_heading(P2_Motion *s, P2_Vector m, float *degrees) {
 
             uint32_t ms=now-s->heading_last_ms;
             float dt=just_seeded || ms>P2_SAMPLE_GAP_MS ? 0.0f : ms*.001f;
+            /* Limit correction speed so an accepted magnetic sample cannot cause a jump. */
             float limit=P2_FUSION_MAG_CORRECTION_DPS*.01745329252f*dt;
             float correction=fmaxf(-limit,fminf(limit,innovation*dt/(P2_FUSION_MAG_FILTER_S+dt)));
             f->mag_guard.correction_deg=remainderf(f->mag_guard.correction_deg+
@@ -350,6 +359,7 @@ bool P2_MotionSetStride(P2_Motion *s, P2_StrideModel m) {
     return true;
 }
 
+/* Use the fixed length unless an enabled cadence model covers this interval. */
 static float step_length(const P2_Motion *s, uint32_t interval) {
     if (!s->stride.adaptive || interval == 0U) return s->stride.fixed_m;
     float hz = 1000.0f/interval;
@@ -363,6 +373,7 @@ static void add_steps(P2_Motion *s, uint32_t count, float distance) {
     if (accepted == 0U) return;
     s->steps += accepted;
 
+    /* Compensated summation reduces rounding loss over many distance increments. */
     float increment = distance*((float)accepted/count) - s->distance_compensation;
     float total = s->distance_m + increment;
     s->distance_compensation = (total-s->distance_m)-increment;
@@ -388,11 +399,13 @@ static void accept_candidate(P2_Motion *s, uint32_t now) {
              (float)s->candidate_interval_ms <= interval * cadence_ratio);
         float length = step_length(s, interval);
 
+        /* An inconsistent interval restarts confirmation with the latest two peaks. */
         if (!consistent || s->pending_steps == 1U) s->pending_distance_m = 2.0f*length;
         else s->pending_distance_m += length;
         s->pending_steps = consistent ? s->pending_steps + 1U : 2U;
         s->weak_bout = consistent ? (s->weak_bout || weak) : weak;
         if (s->pending_steps >= (s->weak_bout ? P2_STEP_WEAK_CONFIRM_COUNT : P2_STEP_CONFIRM_COUNT)) {
+            /* Backfill the initial candidates once a walking sequence is confirmed. */
             add_steps(s, s->pending_steps, s->pending_distance_m);
             s->pending_steps = 0U;
             s->pending_distance_m = 0.0f;
@@ -416,6 +429,7 @@ void P2_MotionInit(P2_Motion *s) {
     s->mag_scale = (P2_Vector){P2_MAG_SCALE_X, P2_MAG_SCALE_Y, P2_MAG_SCALE_Z};
 }
 
+/* Repeated large direction reversals suppress steps until handling settles. */
 static bool step_handling(P2_Motion *s, P2_Vector a, float magnitude,
                           float dt, uint32_t now) {
     float alpha=dt/(P2_STEP_DIRECTION_FILTER_S+dt);
@@ -547,6 +561,7 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
         s->gravity.y += tilt * (a.y - s->gravity.y);
         s->gravity.z += tilt * (a.z - s->gravity.z);
     }
+    /* Remove the slowly varying magnitude baseline, then smooth the step signal. */
     s->baseline += slow * (magnitude - s->baseline);
     float fast = dt / (P2_MOTION_FILTER_S + dt);
     s->previous = s->filtered;
@@ -560,11 +575,13 @@ void P2_MotionAcceleration(P2_Motion *s, P2_Vector a, uint32_t now) {
     float envelope_decay = dt/(P2_STEP_ENVELOPE_S+dt);
     s->step_envelope = fmaxf(fabsf(s->filtered),
                             s->step_envelope*(1.0f-envelope_decay));
+    /* Adapt thresholds to signal amplitude, while retaining minimum noise floors. */
     float high = fmaxf(P2_STEP_PEAK_FLOOR_MG,
                       fminf(P2_STEP_HIGH_MG,0.45f*s->step_envelope));
     float low = -fmaxf(P2_STEP_TROUGH_FLOOR_MG,
                       fminf(-P2_STEP_LOW_MG,0.20f*s->step_envelope));
 
+    /* Arm on a trough; accept a later falling peak only with enough prominence and spacing. */
     if (s->filtered < low) {
         if (!s->armed || s->filtered < s->step_trough) s->step_trough = s->filtered;
         s->armed = true;
@@ -591,6 +608,7 @@ bool P2_MotionHeading(P2_Motion *s, P2_Vector m) {
     if (!isfinite(s->mag_scale.x) || !isfinite(s->mag_scale.y) ||
         !isfinite(s->mag_scale.z) || s->mag_scale.x <= 0.0f ||
         s->mag_scale.y <= 0.0f || s->mag_scale.z <= 0.0f) return false;
+    /* Apply per-axis magnetic offset and scale before estimating heading. */
     m.x = (m.x - s->mag_bias.x) * s->mag_scale.x;
     m.y = (m.y - s->mag_bias.y) * s->mag_scale.y;
     m.z = (m.z - s->mag_bias.z) * s->mag_scale.z;
@@ -678,6 +696,7 @@ filter_heading:;
     s->heading_last_ms = s->last_ms;
     float absolute_heading = wrap(atan2f(s->heading_sin, s->heading_cos)*57.295779513f);
 
+    /* Set zero once; later recovery must not silently redefine the starting direction. */
     if (!s->heading_origin_set) {
         s->heading_origin_deg = absolute_heading;
         s->heading_origin_set = true;
